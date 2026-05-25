@@ -1,67 +1,60 @@
 # AutoSales Engineer Pro
 
-AutoSales Engineer Pro is a Python Streamlit application for AI-assisted technical sales consulting. It runs a four-agent pipeline across three AI providers:
+AutoSales Engineer Pro is a Streamlit application for AI-assisted IT sales engineering. It turns a client brief or image into a structured solution, validates the result through multiple agents, and produces a quote-ready report with supporting rationale.
+
+## Overview
+
+The application runs a four-agent pipeline:
 
 ```text
-                           +----------------------+
-                           | Client Text / Image  |
-                           +----------+-----------+
-                                      |
-             +------------------------+------------------------+
-             |                                                 |
-             v                                                 v
-+---------------------------+                     +---------------------------+
-| Agent 0: Visual Analyst   |                     | Agent 1: Parser Agent    |
-| Provider: Google Gemini   |                     | Provider: Groq           |
-| Model: Gemini 3.5 Flash   |---- extracted ----->| Model: Llama 3.3 70B     |
-+-------------+-------------+                     +-------------+-------------+
-                                                            |
-                                                            v
-                                              +-----------------------------+
-                                              | Agent 2: Sales Engineer    |
-                                              | Provider: Chutes AI        |
-| Model: Qwen 2.5 72B        |
-| Fallback: Groq             |
-                                              | Tools: catalog, web, quote |
-                                              +--------------+--------------+
-                                                             |
-                                                             v
-                                              +-----------------------------+
-                                              | Agent 3: Senior Reviewer   |
-                                              | Provider: Chutes AI        |
-| Model: DeepSeek-R1         |
-| Fallback: Groq             |
-                                              +--------------+--------------+
-                                                             |
-                                                             v
-                                              +-----------------------------+
-                                              | Streamlit Report + PDF     |
-                                              +-----------------------------+
+Client Text / Image
+    |
+    v
+Visual Analyst  ->  Parser  ->  Sales Engineer  ->  Reviewer
+(Gemini)            (Groq)      (Chutes / Groq)     (Chutes / Groq)
+    |                |              |                 |
+    +----------------+--------------+-----------------+
+                 |
+                 v
+               Streamlit report + PDF quote
 ```
 
-## Features
+Each stage adds structure and validation:
 
-- Vision-based extraction from whiteboards, scanned RFQs, diagrams, and server-room photos.
-- Groq-hosted Llama parser for Malaysian IT procurement requirements.
-- Qwen 2.5 72B sales engineer with OpenAI function-calling tools.
-- DeepSeek-R1 senior review pass with technical and commercial scoring.
-- Self-critique loop with up to three improvement iterations.
-- SQLite fallback catalog with exactly 40 seeded products across 8 categories.
-- Tavily-powered real web product search when `TAVILY_API_KEY` is present.
-- Itemized bill of materials, product URLs, source platforms, shipping estimates, SST, TCO, reasoning summary, and delivery timeline.
-- Professional ReportLab PDF quote generation.
+- The Visual Analyst extracts text and context from uploaded images.
+- The Parser converts raw brief data into a structured procurement brief.
+- The Sales Engineer designs a compatible solution using tools and catalog data.
+- The Reviewer performs a final quality and commercial review before delivery.
 
-## Tech Stack
+## Key Features
+
+- Image-to-brief extraction for whiteboards, RFQs, diagrams, and server-room photos.
+- Structured procurement parsing for Malaysian IT sales workflows.
+- Tool-assisted solution generation with catalog search, compatibility checks, budget fit, and delivery validation.
+- Self-critique and reviewer feedback loops for higher-quality outputs.
+- Local SQLite catalog fallback for resilient offline or provider-limited operation.
+- Optional web product search when `TAVILY_API_KEY` is available.
+- Professional quote export with line items, totals, reasoning, and delivery estimates.
+- Clean Streamlit dashboard with a live pipeline monitor.
+
+## Technology Stack
 
 - Python 3.10+
-- Streamlit >= 1.35.0
-- OpenAI Python SDK >= 1.30.0
-- Pydantic >= 2.0.0
-- python-dotenv >= 1.0.0
-- Rich >= 13.0.0
-- ReportLab >= 4.0.0
-- tavily-python >= 0.3.0
+- Streamlit
+- OpenAI-compatible provider clients
+- Pydantic
+- Rich
+- ReportLab
 - SQLite
+- Tavily search integration
+
+## Requirements
+
+You will need:
+
+- Python 3.10 or later
+- API keys for the providers you want to use
+- A virtual environment for local development
 
 ## Setup
 
@@ -73,7 +66,7 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Fill in `.env`:
+Update `.env` with your provider keys and preferred models:
 
 ```text
 GEMINI_API_KEY=your_gemini_key
@@ -90,13 +83,21 @@ REVIEWER_MODEL=deepseek-ai/DeepSeek-R1
 TAVILY_API_KEY=tvly_your_key_here
 ```
 
-Run:
+## Run
 
 ```bash
 streamlit run main.py
 ```
 
-`catalog.db` is created on startup and is intentionally gitignored. If Tavily is not configured or unavailable, the app logs a warning and continues with the SQLite catalog.
+The application creates `catalog.db` on startup. That file is intentionally gitignored. If Tavily is not configured or unavailable, the app continues with the local SQLite catalog.
+
+## How To Use
+
+1. Open the app in Streamlit.
+2. Choose an intake mode: text, image, or both.
+3. Enter the client brief or upload an image.
+4. Launch the agent pipeline.
+5. Review the generated quote, reasoning, and PDF output.
 
 ## Example Text Brief
 
@@ -116,33 +117,38 @@ Specific requirements:
 
 ## Example Image Briefs
 
-Upload any of these in the **Image Upload** or **Both** modes:
+Useful uploads include:
 
 - A whiteboard photo listing budget, users, office location, and device needs.
 - A scanned RFQ document with procurement requirements.
 - A hand-drawn network diagram with router, switch, AP, firewall, and NAS labels.
 - A photo of an existing server room or network rack.
 
-## Self-Critique And Review
+## Pipeline Behavior
 
-The Sales Engineer agent first builds a complete solution using catalog, compatibility, budget, delivery, alternative, and web-search tools. It then critiques its own answer for category coverage, budget fit, user quantities, compatibility, and value swaps. If the critique fails, it revises and tries again, up to three self-critique passes.
+The pipeline is designed to stay resilient when provider limits or tool failures occur:
 
-After that, the Reviewer agent independently evaluates technical soundness, commercial value, risk, scalability, and vendor diversity. If the reviewer rejects the solution, the pipeline performs one revision pass and sends the revised solution back to DeepSeek-R1.
+- The Sales Engineer can fall back to a deterministic local catalog builder.
+- Groq prompts are compacted to reduce request-size and TPM issues.
+- The Reviewer can use a fallback path if the primary provider is unavailable.
+- The UI shows a clean live pipeline monitor so you can see which agent is active.
 
-## Quote Output
+## Output
 
-Both the Streamlit report and generated PDF include:
+The generated report and PDF include:
 
-1. **Itemized Bill of Materials**: product name, quantity, unit price, product URL, source platform, and subtotal.
-2. **Logistics & Cost of Ownership**: estimated shipping fee, Malaysian SST, TCO per product, and grand total TCO.
-3. **Reasoning Summary**: a 150-200 word rationale generated by the Sales Engineer.
-4. **Delivery Timeline Estimate**: West Malaysia 2-5 business days, East Malaysia 5-10 business days, or Nationwide 3-7 business days.
+- Itemized bill of materials with quantity, unit price, product URL, and source platform.
+- Logistics and cost-of-ownership figures, including shipping and SST.
+- A reasoning summary describing the solution choices.
+- A delivery timeline estimate for the selected region.
+- Reviewer feedback with technical and commercial scores.
 
 ## Project Structure
 
 ```text
 autosales-engineer-pro/
 ├── main.py
+├── pipeline.py
 ├── agents/
 │   ├── __init__.py
 │   ├── visual_analyst_agent.py
@@ -152,14 +158,20 @@ autosales-engineer-pro/
 ├── core/
 │   ├── __init__.py
 │   ├── catalog.py
-│   ├── tools.py
-│   ├── models.py
 │   ├── config.py
+│   ├── fallbacks.py
+│   ├── gemini_client.py
 │   ├── llm_utils.py
-│   └── pdf_generator.py
-├── pipeline.py
-├── .env
-├── .env.example
+│   ├── models.py
+│   ├── pdf_generator.py
+│   └── tools.py
 ├── requirements.txt
-└── README.md
+├── README.md
+└── .env.example
 ```
+
+## Notes
+
+- The app is built for Malaysian IT procurement workflows.
+- Local fallback behavior is intentional and helps keep the pipeline usable when external services are rate limited or unavailable.
+- If you want, I can also add badges, screenshots, or a shorter executive summary section.
