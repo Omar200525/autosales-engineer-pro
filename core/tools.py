@@ -208,6 +208,64 @@ def search_web_products(
         return _result(True, [], f"Tavily unavailable; SQLite fallback used: {exc}")
 
 
+def get_fx_rate(from_currency: str, to_currency: str = "MYR") -> ToolResult:
+    """Fetch live FX rate from exchangerate.host API.
+
+    Falls back to hardcoded rates if the API is unavailable.
+    """
+    FALLBACK_RATES = {
+        "USD": 4.48,
+        "SGD": 3.32,
+        "EUR": 4.85,
+        "GBP": 5.67,
+        "AUD": 2.89,
+        "JPY": 0.030,
+        "CNY": 0.62,
+    }
+    from_upper = from_currency.upper()
+    to_upper = to_currency.upper()
+    if from_upper == to_upper:
+        return _result(True, {"rate": 1.0, "from": from_upper, "to": to_upper, "source": "identity"})
+    try:
+        import json as _json
+        import urllib.request
+
+        url = f"https://api.exchangerate.host/latest?base={from_upper}&symbols={to_upper}"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = _json.loads(resp.read())
+        rate = data["rates"].get(to_upper)
+        if rate:
+            return _result(
+                True,
+                {
+                    "rate": rate,
+                    "from": from_upper,
+                    "to": to_upper,
+                    "source": "live_api",
+                    "date": data.get("date", "unknown"),
+                },
+            )
+    except Exception as exc:
+        console.log(f"[yellow]FX API unavailable; using fallback rate: {exc}[/yellow]")
+    fallback_rate = FALLBACK_RATES.get(from_upper)
+    if fallback_rate:
+        return _result(
+            True,
+            {
+                "rate": fallback_rate,
+                "from": from_upper,
+                "to": to_upper,
+                "source": "fallback_hardcoded",
+            },
+        )
+    return _result(
+        False,
+        None,
+        f"No FX rate available for {from_upper} to {to_upper}. "
+        f"Supported fallback currencies: {list(FALLBACK_RATES.keys())}",
+    )
+
+
 TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
@@ -232,6 +290,34 @@ TOOL_DEFINITIONS: list[dict] = [
     {"type": "function", "function": {"name": "calculate_budget_fit", "description": "Calculate budget fit for selected products.", "parameters": {"type": "object", "properties": {"product_ids": {"type": "array", "items": {"type": "string"}}, "quantities": {"type": "object", "additionalProperties": {"type": "integer"}}, "budget_myr": {"type": "number"}}, "required": ["product_ids", "quantities", "budget_myr"]}}},
     {"type": "function", "function": {"name": "find_alternatives", "description": "Find alternative products under a max price.", "parameters": {"type": "object", "properties": {"product_id": {"type": "string"}, "max_price_myr": {"type": "number"}, "same_category": {"type": "boolean"}}, "required": ["product_id", "max_price_myr"]}}},
     {"type": "function", "function": {"name": "search_web_products", "description": "Search real web product listings with Tavily.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "max_price_myr": {"type": "number"}, "location": {"type": "string"}}, "required": ["query"]}}},
+    {
+        "type": "function",
+        "function": {
+            "name": "get_fx_rate",
+            "description": (
+                "Fetch a live currency exchange rate to MYR. "
+                "Use this when the client's budget is stated in a foreign currency "
+                "(USD, SGD, EUR, GBP, AUD, JPY, CNY) so you can convert it to MYR "
+                "before budget calculations. Falls back to reliable hardcoded rates "
+                "if the live API is unavailable."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_currency": {
+                        "type": "string",
+                        "description": "The source currency code e.g. USD, SGD, EUR",
+                    },
+                    "to_currency": {
+                        "type": "string",
+                        "description": "Target currency, always MYR",
+                        "default": "MYR",
+                    },
+                },
+                "required": ["from_currency"],
+            },
+        },
+    },
 ]
 
 
@@ -246,6 +332,7 @@ def dispatch_tool(tool_name: str, arguments: dict) -> str:
             "calculate_budget_fit": calculate_budget_fit,
             "find_alternatives": find_alternatives,
             "search_web_products": search_web_products,
+            "get_fx_rate": get_fx_rate,
         }
         if tool_name not in tools:
             result = _result(False, None, f"Unknown tool: {tool_name}")

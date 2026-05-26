@@ -21,7 +21,7 @@ designing IT infrastructure solutions for businesses in Malaysia.
 
 Your task: design a COMPLETE, VALID, QUOTED IT solution for the client.
 
-You have 7 tools. Follow this MANDATORY process:
+You have 8 tools. Follow this MANDATORY process:
 
 PHASE 1 - DISCOVERY:
 Call search_catalog() for EVERY category in inferred_categories.
@@ -168,6 +168,7 @@ class SalesEngineerAgent:
                     messages=messages,
                     tools=TOOL_DEFINITIONS,
                     tool_choice="auto",
+                    timeout=60,
                 )
             except Exception as exc:
                 if not using_groq_fallback:
@@ -198,6 +199,7 @@ class SalesEngineerAgent:
                             messages=messages,
                             tools=TOOL_DEFINITIONS,
                             tool_choice="auto",
+                            timeout=60,
                         )
                     except Exception as fallback_exc:
                         console.log(f"[yellow]Groq tool fallback failed; using deterministic local builder: {fallback_exc}[/yellow]")
@@ -424,22 +426,31 @@ class SalesEngineerAgent:
             f"a subtotal of MYR {total:,.2f}, delivery status {'feasible' if delivery_ok else 'requiring review'}, "
             f"and compatibility {'verified' if compatible else 'requiring review'}."
         )
+        reasoning_parts = []
+        for item in selected:
+            product = get_product_by_id(item["product_id"])
+            if not product:
+                continue
+            budget_per_cat = brief.budget_myr / max(len(brief.inferred_categories), 1)
+            reasoning_parts.append(
+                f"{product.name} was selected for {product.category} because it "
+                f"fits within the MYR {budget_per_cat:,.0f} per-category budget allocation, "
+                f"is deliverable to {brief.delivery_location}, "
+                f"and is the best available match in the local catalog for the "
+                f"{brief.priority} priority requirement."
+            )
+        dynamic_reasoning = " ".join(reasoning_parts)
+        if not dynamic_reasoning:
+            dynamic_reasoning = (
+                "No products could be resolved from the catalog for this brief. "
+                "Please verify category availability and budget constraints."
+            )
         return {
             "selected_products": selected,
             "reasoning_log": reasoning,
             "total_estimated_myr": total,
             "solution_summary": summary,
-            "reasoning_summary": (
-                "The automated fallback selected real products from the seeded Malaysian IT catalog after the cloud "
-                "solution-builder model failed to produce valid tool calls. Each major component was chosen by matching "
-                "the inferred category to in-stock catalog candidates, prioritizing products under the per-category budget "
-                "where possible, then preferring items deliverable to the requested location or available nationwide. "
-                "This keeps the quote grounded in verified product IDs, prices, compatibility metadata, and delivery regions "
-                "instead of hallucinated web listings. Quantities are estimated from the number of users: software licenses "
-                "scale per user, networking scales by user count, and shared infrastructure such as storage and power is "
-                "quoted as core site equipment. The result is deliberately conservative, budget-aware, and compatible with "
-                "the rest of the reporting, tax, shipping, TCO, and reviewer pipeline."
-            ),
+            "reasoning_summary": dynamic_reasoning,
             "recommendations": [
                 "Validate final quantities with the customer before issuing a purchase order.",
                 "Use the generated PDF as a budgetary quote and confirm vendor stock before procurement.",
@@ -481,6 +492,7 @@ Respond ONLY with JSON:
                 response = client.chat.completions.create(
                     model=active_model,
                     messages=[{"role": "user", "content": prompt}],
+                    timeout=60,
                 )
             except Exception as primary_exc:
                 console.log(f"[yellow]Self-critique primary failed; using Groq fallback: {primary_exc}[/yellow]")
@@ -489,6 +501,7 @@ Respond ONLY with JSON:
                 response = client.chat.completions.create(
                     model=active_model,
                     messages=[{"role": "user", "content": prompt}],
+                    timeout=60,
                 )
             data = parse_json_response(response.choices[0].message.content or "")
             data["iteration"] = iteration

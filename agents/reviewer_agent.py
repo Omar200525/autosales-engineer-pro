@@ -60,13 +60,13 @@ class ReviewerAgent:
             {"role": "user", "content": f"Brief:\n{brief.model_dump_json()}\n\nSolution:\n{solution}"},
         ]
         try:
-            response = client.chat.completions.create(model=REVIEWER_MODEL, messages=messages)
+            response = client.chat.completions.create(model=REVIEWER_MODEL, messages=messages, timeout=60)
             content = response.choices[0].message.content or ""
             try:
                 data = parse_json_response(content)
             except Exception:
                 retry = messages + [{"role": "user", "content": "Respond ONLY with valid JSON."}]
-                response = client.chat.completions.create(model=REVIEWER_MODEL, messages=retry)
+                response = client.chat.completions.create(model=REVIEWER_MODEL, messages=retry, timeout=60)
                 data = parse_json_response(response.choices[0].message.content or "")
             feedback = ReviewerFeedback.model_validate(data)
         except Exception as exc:

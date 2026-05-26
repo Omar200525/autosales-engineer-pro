@@ -70,6 +70,7 @@ def groq_json_completion(system_prompt: str, user_prompt: str, model: str | None
                 {"role": "user", "content": compact_user},
             ],
             response_format={"type": "json_object"},
+            timeout=60,
         )
     except Exception as exc:
         if not _is_groq_token_limit_error(exc):
@@ -89,6 +90,7 @@ def groq_json_completion(system_prompt: str, user_prompt: str, model: str | None
                 {"role": "user", "content": retry_user},
             ],
             response_format={"type": "json_object"},
+            timeout=60,
         )
     return parse_json_response(response.choices[0].message.content or "")
 

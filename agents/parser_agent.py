@@ -63,18 +63,18 @@ class ParserAgent:
         ]
         try:
             try:
-                response = client.chat.completions.create(model=GROQ_PARSER_MODEL, messages=messages)
+                response = client.chat.completions.create(model=GROQ_PARSER_MODEL, messages=messages, timeout=60)
                 active_model = GROQ_PARSER_MODEL
             except Exception as primary_exc:
                 console.log(f"[yellow]Groq parser primary failed; falling back: {primary_exc}[/yellow]")
-                response = client.chat.completions.create(model=GROQ_FALLBACK_MODEL, messages=messages)
+                response = client.chat.completions.create(model=GROQ_FALLBACK_MODEL, messages=messages, timeout=60)
                 active_model = GROQ_FALLBACK_MODEL
             content = response.choices[0].message.content or ""
             try:
                 data = parse_json_response(content)
             except Exception:
                 retry = messages + [{"role": "user", "content": "Respond ONLY with valid JSON."}]
-                response = client.chat.completions.create(model=active_model, messages=retry)
+                response = client.chat.completions.create(model=active_model, messages=retry, timeout=60)
                 data = parse_json_response(response.choices[0].message.content or "")
             brief = StructuredBrief.model_validate(data)
         except Exception as exc:

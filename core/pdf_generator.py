@@ -111,7 +111,12 @@ def generate_pdf(report: SolutionReport) -> bytes:
     story += [_para("Technical Review", styles["H1Navy"])]
     matrix_rows = [["Product A", "Product B", "Status", "Reason"]]
     for pair in report.compatibility_matrix.pairs_checked:
-        matrix_rows.append([pair["a"], pair["b"], "PASS" if pair["compatible"] else "FAIL", _para(pair["reason"], styles["SmallDark"])])
+        matrix_rows.append([
+            pair.get("a_name", pair["a"]),
+            pair.get("b_name", pair["b"]),
+            "PASS" if pair["compatible"] else "FAIL",
+            _para(pair["reason"], styles["SmallDark"]),
+        ])
     matrix = Table(matrix_rows, colWidths=[1.4 * inch, 1.4 * inch, 0.7 * inch, 3.3 * inch])
     matrix.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey), ("BACKGROUND", (0, 0), (-1, 0), PRIMARY), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white)]))
     story += [matrix, Spacer(1, 0.2 * inch), _para("Reviewer Assessment", styles["H1Navy"]), _para(report.reviewer_feedback.overall_assessment, styles["BodyTextDark"])]

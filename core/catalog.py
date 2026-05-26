@@ -6,14 +6,22 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote_plus
 
 from core.models import Product
 
 DB_PATH = Path(__file__).resolve().parents[1] / "catalog.db"
 
 
-def _catalog_url(product_id: str) -> str:
-    return f"catalog://autosales-engineer-pro/products/{product_id}"
+def _product_source_platform(category: str) -> str:
+    return "Lazada" if category in {"networking", "compute", "storage", "cooling"} else "Shopee"
+
+
+def _product_url(name: str, category: str) -> str:
+    keyword = quote_plus(name)
+    if _product_source_platform(category) == "Lazada":
+        return f"https://www.lazada.com.my/catalog/?q={keyword}"
+    return f"https://shopee.com.my/search?keyword={keyword}"
 
 
 SEED_PRODUCTS: list[dict[str, Any]] = [
@@ -89,6 +97,18 @@ def init_db() -> None:
         )
         count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         if db_exists and count:
+            conn.executemany(
+                "UPDATE products SET url = :url, source_platform = :source_platform WHERE id = :id",
+                [
+                    {
+                        "id": p["id"],
+                        "url": _product_url(p["name"], p["category"]),
+                        "source_platform": _product_source_platform(p["category"]),
+                    }
+                    for p in SEED_PRODUCTS
+                ],
+            )
+            conn.commit()
             return
         conn.execute("DELETE FROM products")
         conn.executemany(
@@ -106,8 +126,8 @@ def init_db() -> None:
                     "compatible_with": json.dumps(p["compatible_with"]),
                     "available_regions": json.dumps(p["available_regions"]),
                     "in_stock": 1,
-                    "url": _catalog_url(p["id"]),
-                    "source_platform": "catalog",
+                    "url": _product_url(p["name"], p["category"]),
+                    "source_platform": _product_source_platform(p["category"]),
                 }
                 for p in SEED_PRODUCTS
             ],

@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv(override=True)
+
+def _load_env() -> None:
+    """Load .env even when Streamlit is launched from a parent directory."""
+    app_root = Path(__file__).resolve().parents[1]
+    for env_path in (Path.cwd() / ".env", app_root / ".env", app_root / "autosales-engineer-pro" / ".env"):
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
+
+
+_load_env()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-3.5-flash")

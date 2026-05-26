@@ -48,48 +48,66 @@ Each stage adds structure and validation:
 - SQLite
 - Tavily search integration
 
-## Requirements
+## Prerequisites
 
-You will need:
+- Python 3.10 or later (3.11 recommended)
+- pip 23+
+- Git
 
-- Python 3.10 or later
-- API keys for the providers you want to use
-- A virtual environment for local development
-
-## Setup
+## Quick Start — Windows
 
 ```bash
+git clone https://github.com/yourrepo/autosales-engineer-pro
 cd autosales-engineer-pro
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
-```
-
-Update `.env` with your provider keys and preferred models:
-
-```text
-GEMINI_API_KEY=your_gemini_key
-GEMINI_VISION_MODEL=gemini-3.5-flash
-GEMINI_FALLBACK_VISION_MODEL=gemini-2.5-flash
-GROQ_API_KEY=your_groq_key
-GROQ_BASE_URL=https://api.groq.com/openai/v1
-GROQ_PARSER_MODEL=llama-3.3-70b-versatile
-GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
-CHUTES_API_KEY=your_chutes_key
-CHUTES_BASE_URL=https://llm.chutes.ai/v1
-ORCHESTRATOR_MODEL=Qwen/Qwen2.5-72B-Instruct
-REVIEWER_MODEL=deepseek-ai/DeepSeek-R1
-TAVILY_API_KEY=tvly_your_key_here
-```
-
-## Run
-
-```bash
+# Open .env in a text editor and fill in your API keys
 streamlit run main.py
 ```
 
-The application creates `catalog.db` on startup. That file is intentionally gitignored. If Tavily is not configured or unavailable, the app continues with the local SQLite catalog.
+## Quick Start — macOS / Linux
+
+```bash
+git clone https://github.com/yourrepo/autosales-engineer-pro
+cd autosales-engineer-pro
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+# Open .env in a text editor and fill in your API keys
+streamlit run main.py
+```
+
+## Minimum Required API Keys
+
+Only two keys are required. All other providers degrade gracefully.
+
+| Key | Required | Used For |
+|---|---|---|
+| CHUTES_API_KEY | ✅ Yes | Sales Engineer (Qwen 2.5 72B) + Reviewer (DeepSeek-R1) |
+| GROQ_API_KEY | ✅ Yes | Parser (Llama 3.3 70B) + all provider fallbacks |
+| GEMINI_API_KEY | Optional | Vision agent (image upload feature) |
+| TAVILY_API_KEY | Optional | Real web product search with live URLs |
+
+## First Run
+
+On first launch `catalog.db` is created and seeded automatically
+with 40 products across 8 categories. No manual database setup
+is required. The file is gitignored and recreated if deleted.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `ModuleNotFoundError: google.genai` | `pip install google-genai>=1.0.0` |
+| `catalog.db locked` | Delete `catalog.db` and restart Streamlit |
+| Chutes API 429 / rate limit | Pipeline auto-falls back to Groq; no action needed |
+| Vision upload not working | Add `GEMINI_API_KEY` to `.env` |
+| Tavily returns no results | Normal; pipeline uses SQLite catalog fallback |
+| `RuntimeError: Missing Chutes AI key` | Add `CHUTES_API_KEY` to `.env` |
+| Streamlit hangs during pipeline | Each API call has a 60s timeout; wait or restart |
 
 ## How To Use
 

@@ -1,413 +1,472 @@
-"""Streamlit command-center frontend for AutoSales Engineer Pro."""
+"""Production Streamlit UI for AutoSales Engineer Pro."""
 
 from __future__ import annotations
 
+import time
 from html import escape
-from typing import Iterable
 
+import pandas as pd
 import streamlit as st
-from rich.console import Console
 
 from core import catalog
+from core.catalog import get_all_categories, get_catalog_stats, search_products
+from core.models import AgentStep
 from core.pdf_generator import generate_pdf
+from core.tools import calculate_budget_fit
 from pipeline import SalesEngineerPipeline
 
-console = Console()
 
 st.set_page_config(
     page_title="AutoSales Engineer Pro",
-    page_icon="AE",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-catalog.init_db()
-
-for key, value in {
-    "report": None,
-    "agent_steps": [],
-    "pipeline_running": False,
-    "visual_extraction": None,
-    "pipeline_error": None,
-    "view": "Command",
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-
-def money(value: float) -> str:
-    """Format Malaysian Ringgit consistently."""
-    return "MYR {:,.2f}".format(value or 0.0)
-
-
-def pct(value: float) -> str:
-    """Format a percentage."""
-    return "{:.1f}%".format(value or 0.0)
-
-
-def short(text: str, length: int = 132) -> str:
-    """Trim text for compact cards."""
-    text = str(text or "")
-    return text if len(text) <= length else text[: length - 1] + "..."
-
-
-def html_list(items: Iterable[str], empty: str) -> str:
-    """Render compact HTML bullet chips."""
-    values = list(items) or [empty]
-    return "".join(f"<div class='signal-item'>{escape(short(item, 150))}</div>" for item in values)
-
 
 def inject_css() -> None:
-    """Inject the high-impact command center theme."""
+    """Inject the complete visual system."""
     st.markdown(
         """
 <style>
+[data-testid="stAppViewContainer"],
+[data-theme="dark"],
+html[data-theme="dark"],
+body[data-theme="dark"],
 :root {
-  --bg0: #030712;
-  --bg1: #07111f;
-  --panel: rgba(12, 22, 38, 0.76);
-  --panel2: rgba(16, 31, 52, 0.68);
-  --line: rgba(125, 211, 252, 0.18);
-  --text: #e5f7ff;
-  --muted: #8ca5b8;
-  --cyan: #22d3ee;
-  --blue: #3b82f6;
-  --green: #34d399;
-  --orange: #fb923c;
-  --red: #fb7185;
-  --violet: #a78bfa;
+  --bg-base: #0a0f1e;
+  --bg-surface: #111827;
+  --bg-elevated: #1a2235;
+  --border: rgba(255,255,255,0.08);
+  --border-focus: rgba(99,102,241,0.6);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --accent: #6366f1;
+  --accent-glow: rgba(99,102,241,0.25);
+  --green: #10b981;
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --cyan: #06b6d4;
+}
+[data-theme="light"],
+html[data-theme="light"],
+body[data-theme="light"],
+.stApp[data-theme="light"] {
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-elevated: #f1f5f9;
+  --border: rgba(0,0,0,0.08);
+  --border-focus: rgba(99,102,241,0.5);
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --accent: #6366f1;
+  --accent-glow: rgba(99,102,241,0.15);
+  --green: #059669;
+  --red: #dc2626;
+  --amber: #d97706;
+  --cyan: #0891b2;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-base: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-elevated: #f1f5f9;
+    --border: rgba(0,0,0,0.08);
+    --border-focus: rgba(99,102,241,0.5);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-glow: rgba(99,102,241,0.15);
+    --green: #059669;
+    --red: #dc2626;
+    --amber: #d97706;
+    --cyan: #0891b2;
+  }
+}
+[data-theme="dark"],
+html[data-theme="dark"],
+body[data-theme="dark"],
+.stApp[data-theme="dark"] {
+  --bg-base: #0a0f1e;
+  --bg-surface: #111827;
+  --bg-elevated: #1a2235;
+  --border: rgba(255,255,255,0.08);
+  --border-focus: rgba(99,102,241,0.6);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --accent: #6366f1;
+  --accent-glow: rgba(99,102,241,0.25);
+  --green: #10b981;
+  --red: #ef4444;
+  --amber: #f59e0b;
+  --cyan: #06b6d4;
 }
 html, body, [data-testid="stAppViewContainer"] {
-  background:
-    radial-gradient(circle at 18% 10%, rgba(34, 211, 238, .16), transparent 28rem),
-    radial-gradient(circle at 78% 2%, rgba(167, 139, 250, .13), transparent 25rem),
-    linear-gradient(135deg, var(--bg0) 0%, #08111f 48%, #020617 100%);
-  color: var(--text);
+  background: var(--bg-base) !important;
+  color: var(--text-primary) !important;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif !important;
 }
-[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] { background: transparent; }
-.block-container { padding: 1.1rem 2.1rem 3rem; max-width: 1500px; }
-[data-testid="stSidebar"] { background: rgba(3, 7, 18, .92); border-right: 1px solid var(--line); }
-h1, h2, h3, p, label, span, div { letter-spacing: 0 !important; }
-.ae-shell {
-  position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 22px;
-  background: linear-gradient(140deg, rgba(15, 23, 42, .88), rgba(8, 15, 28, .72));
-  box-shadow: 0 24px 80px rgba(0,0,0,.46), inset 0 0 0 1px rgba(255,255,255,.035);
+* {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif !important;
 }
-.ae-shell:before {
-  content:""; position:absolute; inset:0; pointer-events:none;
-  background-image: linear-gradient(rgba(125,211,252,.075) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(125,211,252,.055) 1px, transparent 1px);
-  background-size: 42px 42px; mask-image: linear-gradient(to bottom, black, transparent 78%);
+[data-testid="stIconMaterial"],
+.material-symbols-rounded,
+.material-symbols-outlined,
+.material-icons {
+  font-family: "Material Symbols Rounded", "Material Symbols Outlined", "Material Icons" !important;
+  font-weight: normal !important;
+  font-style: normal !important;
+  line-height: 1 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  white-space: nowrap !important;
+  word-wrap: normal !important;
+  direction: ltr !important;
+  font-feature-settings: "liga" !important;
+  -webkit-font-feature-settings: "liga" !important;
+  -webkit-font-smoothing: antialiased !important;
 }
-.hero { position:relative; padding: 28px 30px 20px; }
-.eyebrow { color: var(--cyan); font-size: 12px; text-transform: uppercase; font-weight: 800; }
-.hero-title { margin: 4px 0 4px; font-size: clamp(38px, 6vw, 86px); line-height: .92; font-weight: 900; color: #f8fbff; }
-.hero-title span { color: transparent; background: linear-gradient(90deg, var(--cyan), var(--green), var(--violet)); -webkit-background-clip: text; }
-.hero-copy { max-width: 760px; color: #b7c7d6; font-size: 17px; line-height: 1.5; }
-.hero-grid { display:grid; grid-template-columns: 1.15fr .85fr; gap: 20px; align-items: stretch; }
-.pulse-map {
-  min-height: 310px; border-left: 1px solid var(--line); position: relative; overflow:hidden;
-  background: radial-gradient(circle at center, rgba(34,211,238,.12), transparent 42%);
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
 }
-.pulse-map:before { content:""; position:absolute; inset:15%; border: 1px solid rgba(34,211,238,.26); border-radius: 999px; animation: scan 3.4s infinite linear; }
-.pulse-map:after { content:""; position:absolute; inset:31%; border: 1px solid rgba(52,211,153,.24); border-radius: 999px; animation: scan 2.5s infinite linear reverse; }
-@keyframes scan { from { transform: scale(.72); opacity:.85; } to { transform: scale(1.35); opacity:.08; } }
-.agent-node {
-  position:absolute; width: 160px; padding: 12px; border: 1px solid rgba(125,211,252,.25);
-  border-radius: 16px; background: rgba(2,6,23,.72); box-shadow: 0 0 28px rgba(34,211,238,.12);
+p, label, span, div, [data-testid="stMarkdownContainer"] {
+  letter-spacing: 0;
+  color: inherit;
 }
-.n0 { left: 8%; top: 16%; } .n1 { right: 9%; top: 22%; } .n2 { left: 15%; bottom: 16%; } .n3 { right: 7%; bottom: 13%; }
-.agent-node b { display:block; color:#f8fbff; font-size: 13px; } .agent-node small { color: var(--muted); }
-.metric-strip { display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
-.metric-card, .glass-card {
-  border: 1px solid var(--line); border-radius: 18px; background: var(--panel);
-  padding: 16px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+[data-testid="stHeader"] {
+  background: transparent !important;
 }
-.metric-label { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 800; }
-.metric-value { margin-top: 5px; color: #f8fbff; font-size: 25px; font-weight: 900; }
-.nav-row { display:flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
-.stButton > button, .stDownloadButton > button {
-  border-radius: 14px !important; border: 1px solid rgba(34,211,238,.32) !important;
-  color: #e8fbff !important; background: linear-gradient(135deg, rgba(37,99,235,.72), rgba(8,145,178,.48)) !important;
-  box-shadow: 0 10px 34px rgba(34,211,238,.14); font-weight: 800 !important;
+.block-container {
+  padding: 1.5rem 2rem 3rem !important;
+  max-width: 1440px !important;
 }
-.stButton > button:hover, .stDownloadButton > button:hover { transform: translateY(-1px); box-shadow: 0 18px 50px rgba(34,211,238,.22); }
-[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea, [data-testid="stNumberInput"] input, [data-baseweb="select"] {
-  background: rgba(2, 6, 23, .62) !important; border-color: rgba(125,211,252,.22) !important; color: #e5f7ff !important;
+[data-testid="stSidebar"] {
+  background: var(--bg-surface) !important;
+  border-right: 1px solid var(--border) !important;
 }
-.mission-grid { display:grid; grid-template-columns: minmax(340px, .84fr) minmax(440px, 1.16fr); gap: 18px; }
-.agent-rail { display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-.agent-chip {
-  padding: 13px; border-radius: 16px; border: 1px solid var(--line); background: rgba(2,6,23,.55);
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(99,102,241,0.4);
+  border-radius: 3px;
 }
-.agent-chip.done { border-color: rgba(52,211,153,.5); box-shadow: inset 0 -3px 0 rgba(52,211,153,.75); }
-.agent-chip.pending { opacity: .62; }
-.chip-kicker { color: var(--muted); font-size: 11px; text-transform: uppercase; }
-.chip-title { color:#f8fbff; font-weight: 900; font-size: 14px; margin-top: 2px; }
-.chip-model { color: var(--cyan); font-size: 12px; margin-top: 4px; }
-.stream-card { padding: 12px 14px; margin-bottom: 10px; border-radius: 14px; background: rgba(2,6,23,.62); border: 1px solid rgba(125,211,252,.16); }
-.stream-card b { color: #f8fbff; } .stream-card small { color: var(--muted); }
-.quote-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-.product-card { min-height: 220px; border-radius: 18px; padding: 16px; background: linear-gradient(155deg, rgba(15,23,42,.86), rgba(8,47,73,.28)); border: 1px solid var(--line); }
-.product-card h3 { color:#f8fbff; font-size: 18px; margin: 0 0 10px; }
-.tag { display:inline-block; padding: 5px 8px; margin: 0 6px 7px 0; border: 1px solid rgba(34,211,238,.24); border-radius: 999px; color:#bbf7ff; font-size: 11px; background: rgba(34,211,238,.07); }
-.price { color: var(--green); font-size: 24px; font-weight: 900; margin: 10px 0; }
-.section-title { font-size: 25px; color:#f8fbff; font-weight: 900; margin: 18px 0 10px; }
-.signal-item { padding: 10px 12px; margin-bottom: 8px; border-radius: 13px; background: rgba(2,6,23,.55); border: 1px solid rgba(125,211,252,.14); color:#dbeafe; }
-.status-ok { color: var(--green); font-weight: 900; } .status-bad { color: var(--red); font-weight: 900; }
-.catalog-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.catalog-card { border-radius:16px; padding:14px; background:rgba(2,6,23,.58); border:1px solid var(--line); min-height:170px; }
-.catalog-card b { color:#f8fbff; } .catalog-card small { color: var(--muted); }
-.pipeline-wrap { margin-top: 10px; display:grid; gap: 10px; }
-.pipeline-stage {
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 12px 14px;
-    background: rgba(2,6,23,.52);
-    display: grid;
-    grid-template-columns: 120px 1fr;
-    align-items: center;
-    column-gap: 12px;
+.page-header {
+  padding: 24px 0 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
-.pipeline-state {
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    width: 108px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    padding: 6px 9px;
-    border: 1px solid rgba(125,211,252,.20);
-    color: #93c5fd;
-    background: rgba(15,23,42,.72);
+.page-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.pipeline-stage.running { border-color: rgba(52,211,153,.55); box-shadow: 0 0 0 1px rgba(52,211,153,.22); }
-.pipeline-stage.running .pipeline-state { color: #052e16; background: #6ee7b7; border-color: #34d399; }
-.pipeline-stage.done .pipeline-state { color: #052e16; background: #86efac; border-color: #4ade80; }
-.pipeline-stage.pending .pipeline-state { color: #93c5fd; background: rgba(15,23,42,.72); border-color: rgba(125,211,252,.20); }
-.pipeline-stage.blocked .pipeline-state { color: #3f0a12; background: #fda4af; border-color: #fb7185; }
-.pipeline-main { color: #f8fbff; font-weight: 800; line-height: 1.2; }
-.pipeline-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.pipeline-live {
-    margin-top: 12px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 12px 14px;
-    background: rgba(2,6,23,.55);
+.page-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 3px;
 }
-.pipeline-live b { color: #f8fbff; }
-.pipeline-live small { color: var(--muted); }
-
-/* Full bright mode support for Streamlit light theme. */
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) {
-    --bg0: #f6f9ff;
-    --bg1: #edf3ff;
-    --panel: rgba(255, 255, 255, 0.88);
-    --panel2: rgba(248, 252, 255, 0.96);
-    --line: rgba(30, 64, 175, 0.20);
-    --text: #0f172a;
-    --muted: #5b6d87;
-    --cyan: #0284c7;
-    --green: #059669;
-    --violet: #7c3aed;
+.theme-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-testid="stAppViewContainer"] {
-    background:
-        radial-gradient(circle at 12% 8%, rgba(59, 130, 246, .14), transparent 30rem),
-        radial-gradient(circle at 86% 0%, rgba(14, 165, 233, .12), transparent 26rem),
-        linear-gradient(135deg, #f7fbff 0%, #edf4ff 46%, #eaf1ff 100%);
-    color: var(--text);
+.bento-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 24px;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  height: 100%;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-testid="stSidebar"] {
-    background: rgba(241, 247, 255, .96);
-    border-right: 1px solid var(--line);
+.bento-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px var(--accent-glow);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .ae-shell {
-    background: linear-gradient(150deg, rgba(255,255,255,.96), rgba(242,248,255,.94));
-    box-shadow: 0 20px 50px rgba(15, 23, 42, .10), inset 0 0 0 1px rgba(255,255,255,.65);
+.bento-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .ae-shell:before {
-    background-image: linear-gradient(rgba(14,165,233,.08) 1px, transparent 1px),
-                                        linear-gradient(90deg, rgba(14,165,233,.06) 1px, transparent 1px);
+.bento-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pulse-map {
-    background: radial-gradient(circle at center, rgba(14,165,233,.14), transparent 44%);
+.bento-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pulse-map:before {
-    border-color: rgba(2,132,199,.28);
+.bento-accent { color: var(--accent); }
+.bento-green  { color: var(--green); }
+.bento-red    { color: var(--red); }
+.bento-amber  { color: var(--amber); }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pulse-map:after {
-    border-color: rgba(5,150,105,.24);
+.badge-pass {
+  background: rgba(16,185,129,0.12);
+  color: var(--green);
+  border-color: rgba(16,185,129,0.28);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .agent-node {
-    background: rgba(255,255,255,.95);
-    border-color: rgba(30,64,175,.20);
-    box-shadow: 0 8px 26px rgba(30, 64, 175, .08);
+.badge-fail {
+  background: rgba(239,68,68,0.12);
+  color: var(--red);
+  border-color: rgba(239,68,68,0.28);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .agent-node b,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .chip-title,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .section-title,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .metric-value,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .hero-title,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .signal-item,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stream-card b,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .product-card h3,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .catalog-card b {
-    color: #0f172a !important;
+.badge-pending {
+  background: rgba(245,158,11,0.12);
+  color: var(--amber);
+  border-color: rgba(245,158,11,0.28);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .agent-node small,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .hero-copy,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .metric-label,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .chip-kicker,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stream-card small,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .catalog-card small {
-    color: #475569 !important;
+.badge-info {
+  background: rgba(99,102,241,0.12);
+  color: var(--accent);
+  border-color: rgba(99,102,241,0.28);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .glass-card,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .metric-card,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .agent-chip,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stream-card,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .signal-item,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .catalog-card,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .product-card,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-stage,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-live {
-    background: var(--panel2) !important;
-    border-color: rgba(30, 64, 175, .16) !important;
+.step-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .product-card {
-    background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(239,247,255,.92)) !important;
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font-size: 13px;
+  line-height: 1.4;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .tag {
-    color: #0c4a6e;
-    background: rgba(14,165,233,.10);
-    border-color: rgba(14,165,233,.28);
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .price {
-    color: #047857;
+.dot-visual   { background: #8b5cf6; }
+.dot-parser   { background: var(--cyan); }
+.dot-engineer { background: var(--green); }
+.dot-reviewer { background: var(--amber); }
+.step-agent {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-main,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-live b {
-    color: #0f172a !important;
+.step-action {
+  color: var(--text-primary);
+  font-weight: 500;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-sub,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-live small {
-    color: #475569 !important;
+.step-result {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 2px;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .pipeline-state {
-    color: #1e3a8a;
-    background: rgba(219, 234, 254, .9);
-    border-color: rgba(30, 64, 175, .20);
+.pipeline-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 16px 0;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stButton > button,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stDownloadButton > button {
-    color: #ffffff !important;
-    border-color: rgba(2,132,199,.35) !important;
-    background: linear-gradient(135deg, #2563eb, #0ea5e9) !important;
-    box-shadow: 0 10px 26px rgba(37, 99, 235, .22) !important;
+.pipe-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  position: relative;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stButton > button:hover,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) .stDownloadButton > button:hover {
-    box-shadow: 0 14px 34px rgba(37, 99, 235, .28) !important;
+.pipe-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: 55%;
+  right: -45%;
+  height: 1px;
+  background: var(--border);
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-testid="stTextInput"] input,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-testid="stTextArea"] textarea,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-testid="stNumberInput"] input,
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-baseweb="select"],
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-baseweb="base-input"] {
-    background: #ffffff !important;
-    border-color: rgba(30,64,175,.24) !important;
-    color: #0f172a !important;
+.pipe-node.done::after { background: var(--green); }
+.pipe-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  z-index: 1;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-baseweb="popover"],
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [role="listbox"] {
-    background: #ffffff !important;
-    color: #0f172a !important;
+.pipe-icon.done {
+  background: var(--green);
+  border-color: var(--green);
+  color: #ffffff;
 }
-:is(html[data-theme="light"], body[data-theme="light"], [data-theme="light"]) [data-testid="stFileUploaderDropzone"] {
-    background: #ffffff;
-    border-color: rgba(30,64,175,.24);
+.pipe-icon.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  animation: pulse-ring 1.4s infinite;
 }
-
-@media (prefers-color-scheme: light) {
-    :root {
-        --bg0: #f6f9ff;
-        --bg1: #edf3ff;
-        --panel: rgba(255, 255, 255, 0.88);
-        --panel2: rgba(248, 252, 255, 0.96);
-        --line: rgba(30, 64, 175, 0.20);
-        --text: #0f172a;
-        --muted: #5b6d87;
-        --cyan: #0284c7;
-        --green: #059669;
-        --violet: #7c3aed;
-    }
-    html, body, [data-testid="stAppViewContainer"] {
-        background:
-            radial-gradient(circle at 12% 8%, rgba(59, 130, 246, .14), transparent 30rem),
-            radial-gradient(circle at 86% 0%, rgba(14, 165, 233, .12), transparent 26rem),
-            linear-gradient(135deg, #f7fbff 0%, #edf4ff 46%, #eaf1ff 100%);
-        color: var(--text);
-    }
-    [data-testid="stSidebar"] { background: rgba(241, 247, 255, .96); border-right: 1px solid var(--line); }
-    .ae-shell {
-        background: linear-gradient(150deg, rgba(255,255,255,.96), rgba(242,248,255,.94));
-        box-shadow: 0 20px 50px rgba(15, 23, 42, .10), inset 0 0 0 1px rgba(255,255,255,.65);
-    }
-    .ae-shell:before {
-        background-image: linear-gradient(rgba(14,165,233,.08) 1px, transparent 1px),
-                                            linear-gradient(90deg, rgba(14,165,233,.06) 1px, transparent 1px);
-    }
-    .pulse-map { background: radial-gradient(circle at center, rgba(14,165,233,.14), transparent 44%); }
-    .pulse-map:before { border-color: rgba(2,132,199,.28); }
-    .pulse-map:after { border-color: rgba(5,150,105,.24); }
-    .agent-node {
-        background: rgba(255,255,255,.95);
-        border-color: rgba(30,64,175,.20);
-        box-shadow: 0 8px 26px rgba(30,64,175,.08);
-    }
-    .agent-node b, .chip-title, .section-title, .metric-value, .hero-title, .signal-item, .stream-card b, .product-card h3, .catalog-card b { color: #0f172a !important; }
-    .agent-node small, .hero-copy, .metric-label, .chip-kicker, .stream-card small, .catalog-card small { color: #475569 !important; }
-    .glass-card, .metric-card, .agent-chip, .stream-card, .signal-item, .catalog-card, .product-card {
-        background: var(--panel2) !important;
-        border-color: rgba(30, 64, 175, .16) !important;
-    }
-    .pipeline-stage, .pipeline-live {
-        background: var(--panel2) !important;
-        border-color: rgba(30, 64, 175, .16) !important;
-    }
-    .pipeline-main, .pipeline-live b { color: #0f172a !important; }
-    .pipeline-sub, .pipeline-live small { color: #475569 !important; }
-    .pipeline-state {
-        color: #1e3a8a;
-        background: rgba(219, 234, 254, .9);
-        border-color: rgba(30, 64, 175, .20);
-    }
-    .product-card { background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(239,247,255,.92)) !important; }
-    .tag { color: #0c4a6e; background: rgba(14,165,233,.10); border-color: rgba(14,165,233,.28); }
-    .price { color: #047857; }
-    .stButton > button, .stDownloadButton > button {
-        color: #ffffff !important;
-        border-color: rgba(2,132,199,.35) !important;
-        background: linear-gradient(135deg, #2563eb, #0ea5e9) !important;
-        box-shadow: 0 10px 26px rgba(37, 99, 235, .22) !important;
-    }
-    .stButton > button:hover, .stDownloadButton > button:hover { box-shadow: 0 14px 34px rgba(37, 99, 235, .28) !important; }
-    [data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea, [data-testid="stNumberInput"] input, [data-baseweb="select"], [data-baseweb="base-input"] {
-        background: #ffffff !important;
-        border-color: rgba(30,64,175,.24) !important;
-        color: #0f172a !important;
-    }
-    [data-baseweb="popover"], [role="listbox"] { background: #ffffff !important; color: #0f172a !important; }
-    [data-testid="stFileUploaderDropzone"] { background: #ffffff; border-color: rgba(30,64,175,.24); }
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--accent-glow); }
+  70%  { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+  100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
 }
-
-@media (max-width: 1000px) {
-  .hero-grid, .mission-grid, .quote-grid, .catalog-grid, .metric-strip, .agent-rail { grid-template-columns: 1fr; }
-  .pulse-map { min-height: 260px; border-left: 0; border-top: 1px solid var(--line); }
+.pipe-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-top: 6px;
+  text-align: center;
+}
+.pipe-model {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 2px;
+  max-width: 80px;
+}
+.section-header {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin: 8px 0 16px;
+}
+.glass-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text-primary) !important;
+  font-size: 14px !important;
+  transition: border-color 0.2s !important;
+}
+[data-testid="stTextInput"] input:focus,
+[data-testid="stTextArea"] textarea:focus,
+[data-testid="stNumberInput"] input:focus {
+  border-color: var(--border-focus) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow) !important;
+}
+[data-baseweb="select"] {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border) !important;
+  border-radius: 10px !important;
+}
+.stButton > button {
+  background: linear-gradient(135deg, #6366f1, #4f46e5) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  padding: 10px 20px !important;
+  box-shadow: 0 4px 14px rgba(99,102,241,0.35) !important;
+  transition: all 0.2s !important;
+}
+.stButton > button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 8px 24px rgba(99,102,241,0.45) !important;
+}
+.stButton > button[kind="secondary"] {
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: none !important;
+}
+.stDownloadButton > button {
+  background: transparent !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+.stDownloadButton > button:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+[data-testid="stDataFrame"] {
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--border) !important;
+}
+[data-testid="stMetric"] {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+[data-testid="stToolbar"] { display: none; }
+@media (max-width: 760px) {
+  .block-container { padding: 1rem 1rem 2rem !important; }
+  .page-header { align-items: flex-start; flex-direction: column; }
+  .bento-value { font-size: 24px; }
+  .pipeline-track { overflow-x: auto; }
+  .pipe-node { min-width: 96px; }
 }
 </style>
         """,
@@ -415,460 +474,749 @@ h1, h2, h3, p, label, span, div { letter-spacing: 0 !important; }
     )
 
 
-def render_shell_open() -> None:
-    """Open the main visual shell."""
-    st.markdown("<div class='ae-shell'>", unsafe_allow_html=True)
+def is_dark_mode() -> bool:
+    """Return the default Python-side theme assumption."""
+    return True
 
 
-def render_shell_close() -> None:
-    """Close the main visual shell."""
-    st.markdown("</div>", unsafe_allow_html=True)
+def money(value: float) -> str:
+    return f"MYR {value:,.2f}"
 
 
-def render_hero() -> None:
-    """Render the first ten seconds of the demo."""
-    stats = catalog.get_catalog_stats()
-    report = st.session_state.report
-    total = money(report.total_price_myr) if report else "Awaiting launch"
-    score = f"{report.reviewer_feedback.technical_score:.1f}/10" if report else "DeepSeek standby"
+def pct(value: float) -> str:
+    return f"{value:.1f}%"
+
+
+def short(text: str, length: int = 100) -> str:
+    text = str(text or "")
+    return text if len(text) <= length else text[: length - 1] + "…"
+
+
+def badge(text: str, kind: str = "info") -> str:
+    """Return an HTML badge string. kind: pass|fail|pending|info."""
+    return f'<span class="badge badge-{kind}">{escape(text)}</span>'
+
+
+def bento_card_html(label: str, value: str, sub: str = "", color_class: str = "") -> str:
+    sub_html = f"<div class='bento-sub'>{escape(sub)}</div>" if sub else ""
+    return f"""
+    <div class="bento-card">
+      <div class="bento-label">{escape(label)}</div>
+      <div class="bento-value {color_class}">{escape(value)}</div>
+      {sub_html}
+    </div>
+    """
+
+
+def section_header(text: str) -> None:
+    st.markdown(f'<div class="section-header">{escape(text)}</div>', unsafe_allow_html=True)
+
+
+def pipeline_tracker_html(steps: list[AgentStep], running: bool) -> str:
+    """Build the 4-node pipeline tracker HTML."""
+    agents = [
+        ("VisualAnalyst", "🟣", "Gemini 3.5"),
+        ("Parser", "🔵", "Groq Llama"),
+        ("SalesEngineer", "🟢", "Qwen 2.5 72B"),
+        ("Reviewer", "🟠", "DeepSeek-R1"),
+    ]
+    step_agents = [s.agent_name for s in steps]
+    last_agent = step_agents[-1] if step_agents else None
+    nodes_html = ""
+    for agent_name, icon, model in agents:
+        done = agent_name in step_agents
+        active = agent_name == last_agent and running
+        icon_class = "done" if done else ("active" if active else "")
+        icon_symbol = "✓" if done else ("●" if active else icon)
+        connector_class = "done" if done else ""
+        nodes_html += (
+            f'<div class="pipe-node {connector_class}">'
+            f'<div class="pipe-icon {icon_class}">{icon_symbol}</div>'
+            f'<div class="pipe-label">{escape(agent_name)}</div>'
+            f'<div class="pipe-model">{escape(model)}</div>'
+            "</div>"
+        )
+    return f'<div class="pipeline-track">{nodes_html}</div>'
+
+
+def render_page_header() -> None:
     st.markdown(
-        f"""
-<div class="hero">
-  <div class="hero-grid">
-    <div>
-      <div class="eyebrow">Autonomous technical sales command center</div>
-      <div class="hero-title">AutoSales<br><span>Engineer Pro</span></div>
-      <div class="hero-copy">
-        A four-agent procurement engine that sees client briefs, parses intent, builds a compatible Malaysian IT quote,
-        critiques itself, and submits to a senior AI reviewer. The demo impact screen is the live agent console below.
-      </div>
-      <div class="metric-strip">
-        <div class="metric-card"><div class="metric-label">Catalog</div><div class="metric-value">{stats["total_products"]}</div></div>
-        <div class="metric-card"><div class="metric-label">Providers</div><div class="metric-value">2</div></div>
-        <div class="metric-card"><div class="metric-label">Quote</div><div class="metric-value">{escape(total)}</div></div>
-        <div class="metric-card"><div class="metric-label">Review</div><div class="metric-value">{escape(score)}</div></div>
-      </div>
-    </div>
-    <div class="pulse-map">
-      <div class="agent-node n0"><b>Gemini 3.5</b><small>Vision with 2.5 fallback</small></div>
-      <div class="agent-node n1"><b>Groq</b><small>Brief parser</small></div>
-      <div class="agent-node n2"><b>Qwen / Groq</b><small>Solution builder fallback</small></div>
-      <div class="agent-node n3"><b>DeepSeek / Groq</b><small>Senior review fallback</small></div>
-    </div>
+        """
+<div class="page-header">
+  <div>
+    <div class="page-title">⚡ AutoSales Engineer Pro</div>
+    <div class="page-subtitle">Four-Agent AI Pipeline · Track 1 · APU AI Marathon 2026</div>
   </div>
+  <div class="theme-badge">v1.0 · LLM Everywhere</div>
 </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def render_nav() -> str:
-    """Render the high-level view selector."""
-    options = ["Command", "Quote", "Reasoning", "Catalog"]
-    cols = st.columns(len(options))
-    for col, option in zip(cols, options):
-        with col:
-            if st.button(option, use_container_width=True, type="primary" if st.session_state.view == option else "secondary"):
-                st.session_state.view = option
-                st.rerun()
-    return st.session_state.view
-
-
-def build_raw_brief() -> str:
-    """Create the text brief from form fields."""
-    requirements = st.session_state.get("requirements", "")
-    return f"""
-Client: {st.session_state.get("client_name", "")}
-Use case: {st.session_state.get("use_case", "")}
-Budget: MYR {st.session_state.get("budget_myr", 0):,.2f}
-Delivery location: {st.session_state.get("delivery_location", "")}
-Number of users: {st.session_state.get("num_users", "")}
-Specific requirements:
-{requirements}
-""".strip()
-
-
-def set_template(name: str) -> None:
-    """Populate form fields with a quick template."""
-    templates = {
-        "office": {
-            "client_name": "Acme KL Services",
-            "use_case": "New office launch for 15 staff requiring secure internet, WiFi coverage, file sharing, Microsoft 365, UPS protection, and a polished meeting room.",
-            "budget_myr": 25000,
-            "delivery_location": "Kuala Lumpur",
-            "num_users": 15,
-            "requirements": "WiFi coverage for 3 floors\nNAS for shared files\nUPS backup power\nMicrosoft 365 for all users\nVideo conferencing room setup",
-        },
-        "server": {
-            "client_name": "Penang Precision Manufacturing",
-            "use_case": "SME server room refresh for 50 users with secure firewall, rack compute, backup storage, switching, WiFi, and protected power.",
-            "budget_myr": 85000,
-            "delivery_location": "Penang",
-            "num_users": 50,
-            "requirements": "Rack server for business apps\nFirewall with VPN\nNAS backup\nUPS and rack\nScalable switching and WiFi",
-        },
-        "studio": {
-            "client_name": "Kuching Creative Studio",
-            "use_case": "Creative studio collaboration setup for 10 users with compact desktops, premium displays, peripherals, cloud productivity, and backup.",
-            "budget_myr": 38000,
-            "delivery_location": "Kuching",
-            "num_users": 10,
-            "requirements": "Compact desktops\n4K displays\nKeyboard and mouse sets\nTeams and OneDrive\nBackup storage",
-        },
-    }
-    for field, value in templates[name].items():
-        st.session_state[field] = value
-
-
 def render_sidebar() -> None:
-    """Render compact operator controls."""
     with st.sidebar:
-        st.markdown("## AE Pro")
-        st.caption("Four-agent command console")
-        st.divider()
-        st.markdown("**Pipeline**")
-        st.caption("Gemini 3.5 -> Gemini 2.5 fallback -> Groq -> Chutes/Groq")
-        st.divider()
-        stats = catalog.get_catalog_stats()
-        st.metric("Products", stats["total_products"])
-        st.metric("Categories", len(stats["categories"]))
-        st.caption(f"Range: {money(stats['min_price'])} - {money(stats['max_price'])}")
-        st.divider()
-        st.toggle("Debug telemetry", key="debug_mode", value=False)
-
-
-def run_pipeline(uses_text: bool, uses_image: bool, uploaded_image) -> None:
-    """Validate input and run the pipeline."""
-    if uses_text and (not st.session_state.get("client_name") or not st.session_state.get("use_case")):
-        st.error("Client name and use case are required for text briefs.")
-        return
-    if uses_image and uploaded_image is None:
-        st.error("Upload a supported image for visual extraction.")
-        return
-    st.session_state.pipeline_running = True
-    st.session_state.agent_steps = []
-    st.session_state.pipeline_error = None
-    try:
-        raw_brief = build_raw_brief() if uses_text else ""
-        image_bytes = uploaded_image.getvalue() if uploaded_image else None
-        media_type = uploaded_image.type if uploaded_image else None
-        launch = st.empty()
-        launch.markdown(
+        st.markdown(
             """
-<div class="glass-card">
-  <div class="eyebrow">Live orchestration started</div>
-  <div class="section-title">Agents are negotiating the solution...</div>
-  <div class="signal-item">Vision, parsing, catalog search, compatibility, budget, delivery, critique, and senior review are running.</div>
+<div style="padding:8px 0 16px">
+  <div style="font-size:18px;font-weight:800;color:var(--text-primary);letter-spacing:-0.02em">
+    ⚡ AutoSales Pro
+  </div>
+  <div style="font-size:11px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">
+    AI Sales Engineer
+  </div>
 </div>
             """,
             unsafe_allow_html=True,
         )
-        pipeline = SalesEngineerPipeline()
-        report = pipeline.run(
-            raw_brief=raw_brief,
-            image_bytes=image_bytes,
-            image_media_type=media_type,
-            on_step=lambda step: st.session_state.agent_steps.append(step),
-        )
-        st.session_state.report = report
-        st.session_state.view = "Quote"
-        st.success("Mission complete. Quote package generated.")
-    except RuntimeError as exc:
-        console.log(f"[red]{exc}[/red]")
-        st.session_state.pipeline_error = str(exc)
-        st.error(str(exc))
-    except Exception as exc:
-        console.log(f"[red]Pipeline failed: {exc}[/red]")
-        st.session_state.pipeline_error = str(exc)
-        st.error(f"Pipeline failed after {len(st.session_state.agent_steps)} logged steps: {exc}")
-    finally:
-        st.session_state.pipeline_running = False
-
-
-def render_agent_rail() -> None:
-    """Show a clean pipeline monitor with one row per agent."""
-    steps = st.session_state.agent_steps
-    latest_by_agent = {}
-    for step in steps:
-        latest_by_agent[step.agent_name] = step
-    done_agents = set(latest_by_agent.keys())
-    latest_agent = steps[-1].agent_name if steps else None
-    pipeline_error = st.session_state.pipeline_error
-    running = st.session_state.pipeline_running
-    agents = [
-        ("VisualAnalyst", "Visual intake", "Gemini 3.5 -> 2.5"),
-        ("Parser", "Requirements parser", "Groq Llama 3.3 70B"),
-        ("SalesEngineer", "Solution builder", "Chutes Qwen -> Groq"),
-        ("Reviewer", "Final QA", "Chutes DeepSeek -> Groq"),
-    ]
-    rows = []
-    for idx, (name, label, model) in enumerate(agents):
-        if running and latest_agent == name:
-            state = "running"
-            badge = "Running"
-        elif pipeline_error and latest_agent == name:
-            state = "blocked"
-            badge = "Blocked"
-        elif name in done_agents:
-            state = "done"
-            badge = "Done"
-        else:
-            previous_done = all(prev_name in done_agents for prev_name, _, _ in agents[:idx])
-            state = "pending"
-            badge = "Queued" if previous_done else "Waiting"
-
-        latest = latest_by_agent.get(name)
-        detail = latest.action if latest else "Awaiting pipeline start"
-        summary = latest.tool_result_summary if latest else model
-        rows.append(
-            "<div class='pipeline-stage {state}'>"
-            "<div><span class='pipeline-state'>{badge}</span></div>"
-            "<div>"
-            "<div class='pipeline-main'>{name} • {label}</div>"
-            "<div class='pipeline-sub'>{detail}</div>"
-            "<div class='pipeline-sub'>{summary}</div>"
-            "</div></div>".format(
-                state=state,
-                badge=escape(badge),
-                name=escape(name),
-                label=escape(label),
-                detail=escape(short(detail, 100)),
-                summary=escape(short(summary, 120)),
-            )
-        )
-    st.markdown(f"<div class='pipeline-wrap'>{''.join(rows)}</div>", unsafe_allow_html=True)
-
-
-def render_step_stream() -> None:
-    """Render a concise live pipeline snapshot."""
-    steps = st.session_state.agent_steps
-    if not steps:
-        st.markdown(
-            "<div class='pipeline-live'><b>Pipeline idle</b><br><small>Launch a mission to see the active agent and latest pipeline action.</small></div>",
-            unsafe_allow_html=True,
-        )
-        return
-    latest = steps[-1]
-    active_text = "Running" if st.session_state.pipeline_running else "Last update"
-    st.markdown(
-        f"""
-<div class="pipeline-live">
-  <b>{escape(active_text)}: {escape(latest.agent_name)}</b><br>
-  <small>{escape(short(latest.action, 130))}</small><br>
-  <small>{escape(latest.tool_called or "no tool")} | {escape(short(latest.tool_result_summary, 140))} | {escape(latest.timestamp[-8:])}</small>
-</div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_command_view() -> None:
-    """Render the demo-first command center."""
-    st.markdown("<div class='mission-grid'>", unsafe_allow_html=True)
-    left, right = st.columns([0.42, 0.58])
-    with left:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='eyebrow'>Mission input</div><div class='section-title'>Brief cockpit</div>", unsafe_allow_html=True)
-        mode = st.radio("Intake mode", ["Text", "Image", "Both"], horizontal=True, label_visibility="collapsed")
-        uses_text = mode in {"Text", "Both"}
-        uses_image = mode in {"Image", "Both"}
-        uploaded_image = None
-        if uses_text:
-            st.text_input("Client Name", key="client_name", placeholder="Acme KL Services")
-            st.text_area("Use Case", height=118, key="use_case", placeholder="New office setup for 20 staff with secure internet, WiFi, NAS, UPS, and conferencing.")
-            c1, c2 = st.columns(2)
-            c1.number_input("Budget (MYR)", min_value=1000, max_value=1000000, value=st.session_state.get("budget_myr", 25000), step=1000, key="budget_myr")
-            c2.number_input("Users", min_value=1, max_value=10000, value=st.session_state.get("num_users", 15), key="num_users")
-            st.selectbox("Delivery Location", ["Kuala Lumpur", "Penang", "Johor Bahru", "Kota Kinabalu", "Kuching", "Nationwide"], key="delivery_location")
-            st.text_area("Requirements", height=114, key="requirements", placeholder="One requirement per line")
-        if uses_image:
-            uploaded_image = st.file_uploader("Visual brief", type=["jpg", "jpeg", "png", "webp"])
-            if uploaded_image:
-                st.image(uploaded_image, caption="Gemini visual extraction target", use_container_width=True)
-        st.markdown("<div class='eyebrow'>Instant demos</div>", unsafe_allow_html=True)
-        t1, t2, t3 = st.columns(3)
-        t1.button("Office", on_click=set_template, args=("office",), use_container_width=True)
-        t2.button("Server Room", on_click=set_template, args=("server",), use_container_width=True)
-        t3.button("Studio", on_click=set_template, args=("studio",), use_container_width=True)
-        a, b = st.columns([0.7, 0.3])
-        if a.button("Launch Agent Swarm", type="primary", use_container_width=True):
-            run_pipeline(uses_text, uses_image, uploaded_image)
-        if b.button("Reset", use_container_width=True):
-            st.session_state.report = None
-            st.session_state.agent_steps = []
-            st.session_state.pipeline_error = None
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-    with right:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.markdown("<div class='eyebrow'>Live status</div><div class='section-title'>Pipeline monitor</div>", unsafe_allow_html=True)
-        render_agent_rail()
-        render_step_stream()
-        if st.session_state.pipeline_error:
-            st.error(st.session_state.pipeline_error)
-        if st.session_state.report:
-            report = st.session_state.report
+        st.divider()
+        st.markdown('<div class="section-header">Agent Pipeline</div>', unsafe_allow_html=True)
+        rows = [
+            ("#8b5cf6", "Visual Analyst", "Gemini 3.5 Flash"),
+            ("#06b6d4", "Parser", "Groq Llama 3.3 70B"),
+            ("#10b981", "Sales Engineer", "Qwen 2.5 72B"),
+            ("#f59e0b", "Reviewer", "DeepSeek-R1"),
+        ]
+        for color, agent, model in rows:
             st.markdown(
                 f"""
-<div class="metric-strip">
-  <div class="metric-card"><div class="metric-label">Subtotal</div><div class="metric-value">{money(report.total_price_myr)}</div></div>
-  <div class="metric-card"><div class="metric-label">Budget fit</div><div class="metric-value">{pct(report.budget_utilization_pct)}</div></div>
-  <div class="metric-card"><div class="metric-label">Tech score</div><div class="metric-value">{report.reviewer_feedback.technical_score:.1f}/10</div></div>
-  <div class="metric-card"><div class="metric-label">TCO</div><div class="metric-value">{money(report.logistics_tco_total_myr)}</div></div>
+<div style="display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--text-secondary);font-size:13px">
+  <span style="width:8px;height:8px;border-radius:50%;background:{color};display:inline-block"></span>
+  <span><b style="color:var(--text-primary)">{escape(agent)}</b> — {escape(model)}</span>
 </div>
                 """,
                 unsafe_allow_html=True,
             )
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.divider()
+        stats = get_catalog_stats()
+        st.metric("Products", stats["total_products"])
+        st.metric("Categories", len(stats["categories"]))
+        st.metric("Price Range", f"{money(stats['min_price'])} - {money(stats['max_price'])}")
+        st.divider()
+        st.caption("© 2026 AutoSales Engineer Pro")
 
 
-def render_quote_view() -> None:
-    """Render the cinematic quote package."""
-    report = st.session_state.report
-    if report is None:
-        st.markdown("<div class='glass-card'><div class='section-title'>No quote package yet</div><div class='signal-item'>Run a mission from Command to generate the judge-facing proposal.</div></div>", unsafe_allow_html=True)
+def apply_template_defaults() -> None:
+    mapping = {
+        "tpl_name": "client_name",
+        "tpl_use_case": "use_case",
+        "tpl_budget": "budget_myr",
+        "tpl_users": "num_users",
+        "tpl_location": "delivery_location",
+        "tpl_reqs": "requirements",
+    }
+    for source, target in mapping.items():
+        if source in st.session_state:
+            st.session_state[target] = st.session_state[source]
+            del st.session_state[source]
+
+
+def reset_state() -> None:
+    st.session_state.report = None
+    st.session_state.agent_steps = []
+    st.session_state.pipeline_running = False
+    st.session_state.pipeline_error = None
+
+
+def render_step_feed() -> None:
+    steps = st.session_state.agent_steps
+    if not steps and not st.session_state.pipeline_running:
+        st.markdown(
+            """
+<div style="text-align:center;padding:48px 24px;color:var(--text-muted);">
+  <div style="font-size:32px;margin-bottom:12px">⚡</div>
+  <div style="font-weight:700;font-size:14px;color:var(--text-secondary)">Ready to generate</div>
+  <div style="font-size:13px;margin-top:4px">Fill in the brief and click Generate Solution</div>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
-    safe_client = "".join(ch for ch in report.client_name.lower().replace(" ", "_") if ch.isalnum() or ch == "_")
+
+    dot_map = {
+        "VisualAnalyst": "dot-visual",
+        "Parser": "dot-parser",
+        "SalesEngineer": "dot-engineer",
+        "Reviewer": "dot-reviewer",
+    }
+    rows = []
+    for step in reversed(steps[-20:]):
+        dot = dot_map.get(step.agent_name, "dot-parser")
+        time_part = step.timestamp[11:19] if step.timestamp and len(step.timestamp) >= 19 else ""
+        rows.append(
+            f"""
+<div class="step-item">
+  <div class="step-dot {dot}"></div>
+  <div>
+    <div class="step-agent">{escape(step.agent_name)} · {escape(time_part)}</div>
+    <div class="step-action">{escape(short(step.action, 80))}</div>
+    <div class="step-result">{escape(short(step.tool_result_summary, 100))}</div>
+  </div>
+</div>
+            """
+        )
+    st.markdown(f'<div class="step-feed">{"".join(rows)}</div>', unsafe_allow_html=True)
+
+
+def render_completion_card() -> None:
+    report = st.session_state.report
+    if st.session_state.pipeline_running or report is None:
+        return
+    status_text = "Within Budget" if report.within_budget else "Over Budget"
+    status_kind = "pass" if report.within_budget else "fail"
     st.markdown(
         f"""
-<div class="glass-card">
-  <div class="eyebrow">Generated proposal</div>
-  <div class="section-title">{escape(report.client_name)}</div>
-  <div class="metric-strip">
-    <div class="metric-card"><div class="metric-label">Subtotal</div><div class="metric-value">{money(report.total_price_myr)}</div></div>
-    <div class="metric-card"><div class="metric-label">Grand TCO</div><div class="metric-value">{money(report.logistics_tco_total_myr)}</div></div>
-    <div class="metric-card"><div class="metric-label">Budget use</div><div class="metric-value">{pct(report.budget_utilization_pct)}</div></div>
-    <div class="metric-card"><div class="metric-label">Reviewer</div><div class="metric-value">{report.reviewer_feedback.technical_score:.1f}/{report.reviewer_feedback.commercial_score:.1f}</div></div>
-  </div>
+<div class="bento-card">
+  <div class="bento-label">Complete</div>
+  <div class="bento-value bento-green">Solution generated in {report.pipeline_duration_seconds:.1f}s</div>
+  <div class="bento-sub">Total: {money(report.total_price_myr)}</div>
+  <div style="margin-top:10px">{badge(status_text, status_kind)}</div>
+  <div class="bento-sub">View full results in Solution Report →</div>
 </div>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='section-title'>Itemized bill of materials</div>", unsafe_allow_html=True)
-    cards = []
-    for item in report.line_items:
-        cards.append(
-            f"""
-<div class="product-card">
-  <span class="tag">{escape(item.category)}</span><span class="tag">{escape(item.source_platform)}</span>
-  <h3>{escape(item.product_name)}</h3>
-  <div class="price">{money(item.subtotal_myr)}</div>
-  <div class="signal-item">Qty {item.quantity} x {money(item.unit_price_myr)}</div>
-  <div class="signal-item">Confidence {item.confidence_score:.0%}: {escape(short(item.confidence_reason, 90))}</div>
-  <small>{escape(short(item.product_url, 95))}</small>
-</div>
-            """
+
+
+def render_new_brief_tab() -> None:
+    apply_template_defaults()
+    col_form, col_live = st.columns([1, 1], gap="large")
+
+    with col_form:
+        section_header("Client Requirements")
+        mode = st.radio(
+            "Input mode",
+            ["📝 Text", "🖼️ Image", "📝 + 🖼️ Both"],
+            horizontal=True,
+            label_visibility="collapsed",
         )
-    st.markdown(f"<div class='quote-grid'>{''.join(cards)}</div>", unsafe_allow_html=True)
-    q1, q2 = st.columns([0.52, 0.48])
-    with q1:
-        st.markdown("<div class='section-title'>Logistics and ownership</div>", unsafe_allow_html=True)
-        tco = "".join(
-            f"<div class='signal-item'><b>{escape(item.product_name)}</b><br>Shipping {money(item.shipping_fee_myr)} | SST {money(item.sst_myr)} | TCO <span class='status-ok'>{money(item.tco_myr)}</span></div>"
-            for item in report.line_items
-        )
-        st.markdown(f"<div class='glass-card'>{tco}<div class='metric-card'><div class='metric-label'>Grand total TCO</div><div class='metric-value'>{money(report.logistics_tco_total_myr)}</div></div></div>", unsafe_allow_html=True)
-    with q2:
-        st.markdown("<div class='section-title'>Executive intelligence</div>", unsafe_allow_html=True)
+        uses_text = mode in {"📝 Text", "📝 + 🖼️ Both"}
+        uses_image = mode in {"🖼️ Image", "📝 + 🖼️ Both"}
+
+        if "client_name" not in st.session_state:
+            st.session_state.client_name = ""
+        if "use_case" not in st.session_state:
+            st.session_state.use_case = ""
+        if "budget_myr" not in st.session_state:
+            st.session_state.budget_myr = 25000
+        if "num_users" not in st.session_state:
+            st.session_state.num_users = 15
+        if "delivery_location" not in st.session_state:
+            st.session_state.delivery_location = "Kuala Lumpur"
+        if "requirements" not in st.session_state:
+            st.session_state.requirements = ""
+
+        uploaded_image = None
+        if uses_text:
+            client_name = st.text_input("Client name", placeholder="e.g. Acme KL Services", key="client_name")
+            use_case = st.text_area(
+                "Project description",
+                placeholder="e.g. New office for 20 staff — WiFi, file sharing, Microsoft 365, video conferencing",
+                height=90,
+                key="use_case",
+            )
+            c1, c2 = st.columns(2)
+            with c1:
+                budget_myr = st.number_input(
+                    "Budget (MYR)",
+                    min_value=1000,
+                    max_value=1000000,
+                    step=1000,
+                    key="budget_myr",
+                )
+            with c2:
+                num_users = st.number_input(
+                    "Users",
+                    min_value=1,
+                    max_value=5000,
+                    key="num_users",
+                )
+            delivery_location = st.selectbox(
+                "Delivery location",
+                ["Kuala Lumpur", "Penang", "Johor Bahru", "Kota Kinabalu", "Kuching", "Nationwide"],
+                key="delivery_location",
+            )
+            requirements = st.text_area(
+                "Specific requirements (one per line)",
+                placeholder="WiFi coverage for 3 floors\nNAS for file sharing\nUPS backup power\nMicrosoft 365 for all users",
+                height=110,
+                key="requirements",
+            )
+        else:
+            client_name = st.session_state.client_name or "Image Brief Client"
+            use_case = st.session_state.use_case or "Image-based procurement brief"
+            budget_myr = st.session_state.budget_myr
+            num_users = st.session_state.num_users
+            delivery_location = st.session_state.delivery_location
+            requirements = st.session_state.requirements
+
+        if uses_image:
+            uploaded_image = st.file_uploader(
+                "Upload brief image",
+                type=["jpg", "jpeg", "png", "webp"],
+                help="Whiteboard, scanned RFQ, network diagram, or server room photo",
+            )
+            if uploaded_image:
+                st.image(uploaded_image, width="stretch")
+                st.caption("🟣 Gemini 3.5 Flash will analyze this image")
+
+        with st.expander("⚡ Quick templates"):
+            t1, t2, t3 = st.columns(3)
+            with t1:
+                if st.button("🏢 Small Office", width="stretch"):
+                    st.session_state["tpl_name"] = "Acme KL Office"
+                    st.session_state["tpl_use_case"] = "Small office setup for 15 staff with secure internet, WiFi, file sharing, Microsoft 365, and video conferencing."
+                    st.session_state["tpl_budget"] = 25000
+                    st.session_state["tpl_users"] = 15
+                    st.session_state["tpl_location"] = "Kuala Lumpur"
+                    st.session_state["tpl_reqs"] = "WiFi coverage for 3 floors\nNAS for shared files\nUPS backup power\nMicrosoft 365 for all users\nVideo conferencing room setup"
+                    st.rerun()
+            with t2:
+                if st.button("🏭 SME Server Room", width="stretch"):
+                    st.session_state["tpl_name"] = "TechCorp Penang"
+                    st.session_state["tpl_use_case"] = "SME server room with NAS, compute, networking, and backup power for 50 staff."
+                    st.session_state["tpl_budget"] = 85000
+                    st.session_state["tpl_users"] = 50
+                    st.session_state["tpl_location"] = "Penang"
+                    st.session_state["tpl_reqs"] = "Rack server with NAS\nManaged switch and firewall\nWiFi 6 access points\nUPS for server room\nVeeam backup solution"
+                    st.rerun()
+            with t3:
+                if st.button("💻 Creative Studio", width="stretch"):
+                    st.session_state["tpl_name"] = "PixelWorks Studio"
+                    st.session_state["tpl_use_case"] = "Creative studio setup for 10 designers with high-performance workstations, 4K monitors, and fast storage."
+                    st.session_state["tpl_budget"] = 38000
+                    st.session_state["tpl_users"] = 10
+                    st.session_state["tpl_location"] = "Kuala Lumpur"
+                    st.session_state["tpl_reqs"] = "High-performance mini PCs\n4K monitors\nFast NVMe shared storage\nWireless keyboards and mice\nMicrosoft 365 licenses"
+                    st.rerun()
+
+        st.divider()
+        b1, b2 = st.columns([3, 1])
+        with b1:
+            run_btn = st.button("⚡ Generate Solution", width="stretch", type="primary")
+        with b2:
+            clear_btn = st.button("Clear", width="stretch")
+
+        if clear_btn:
+            reset_state()
+            st.rerun()
+
+        if run_btn:
+            errors = []
+            if uses_text and not client_name.strip():
+                errors.append("Client name is required.")
+            if uses_text and not use_case.strip():
+                errors.append("Project description is required.")
+            if uses_image and uploaded_image is None:
+                errors.append("Upload a brief image for image mode.")
+            if errors:
+                for error in errors:
+                    st.error(error)
+            else:
+                reqs_list = [r.strip() for r in requirements.splitlines() if r.strip()]
+                raw_brief = (
+                    f"Client: {client_name}\n"
+                    f"Use case: {use_case}\n"
+                    f"Budget: MYR {budget_myr}\n"
+                    f"Delivery location: {delivery_location}\n"
+                    f"Number of users: {num_users}\n"
+                    "Specific requirements:\n"
+                    + "\n".join(f"- {r}" for r in reqs_list)
+                )
+                image_bytes = uploaded_image.getvalue() if uses_image and uploaded_image is not None else None
+                image_media_type = uploaded_image.type if uses_image and uploaded_image is not None else None
+
+                st.session_state.agent_steps = []
+                st.session_state.pipeline_running = True
+                st.session_state.pipeline_error = None
+                st.session_state.report = None
+
+                pipeline = SalesEngineerPipeline()
+
+                def on_step(step: AgentStep) -> None:
+                    st.session_state.agent_steps.append(step)
+
+                try:
+                    with st.spinner("Running four-agent pipeline..."):
+                        report = pipeline.run(
+                            raw_brief=raw_brief,
+                            image_bytes=image_bytes,
+                            image_media_type=image_media_type,
+                            on_step=on_step,
+                        )
+                        st.session_state.report = report
+                except Exception as exc:
+                    st.session_state.pipeline_error = str(exc)
+                finally:
+                    st.session_state.pipeline_running = False
+                st.rerun()
+
+    with col_live:
+        section_header("Pipeline Monitor")
         st.markdown(
-            f"""
-<div class="glass-card">
-  <div class="signal-item">{escape(report.executive_summary)}</div>
-  <div class="signal-item"><b>Reasoning:</b> {escape(report.reasoning_summary)}</div>
-  <div class="signal-item"><b>Delivery:</b> {escape(report.delivery_timeline_estimate)}</div>
-</div>
-            """,
+            pipeline_tracker_html(st.session_state.agent_steps, st.session_state.pipeline_running),
             unsafe_allow_html=True,
         )
-    r1, r2, r3 = st.columns(3)
-    r1.markdown(f"<div class='glass-card'><div class='metric-label'>Budget</div><div class='metric-value'>{'PASS' if report.within_budget else 'ALERT'}</div></div>", unsafe_allow_html=True)
-    r2.markdown(f"<div class='glass-card'><div class='metric-label'>Compatibility</div><div class='metric-value'>{'PASS' if report.compatibility_matrix.all_compatible else 'ALERT'}</div></div>", unsafe_allow_html=True)
-    r3.markdown(f"<div class='glass-card'><div class='metric-label'>Delivery</div><div class='metric-value'>{'PASS' if report.delivery_feasible else 'ALERT'}</div></div>", unsafe_allow_html=True)
-    st.markdown("<div class='section-title'>Senior reviewer signals</div>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    c1.markdown(f"<div class='glass-card'><div class='eyebrow'>Risk flags</div>{html_list(report.reviewer_feedback.risk_flags, 'No major risk flags')}</div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='glass-card'><div class='eyebrow'>Suggestions</div>{html_list(report.reviewer_feedback.suggestions, 'No additional suggestions')}</div>", unsafe_allow_html=True)
-    d1, d2 = st.columns(2)
-    d1.download_button("Download PDF Quote", data=generate_pdf(report), file_name=f"quote_{safe_client}.pdf", mime="application/pdf", use_container_width=True)
-    d2.download_button("Download JSON Report", data=report.model_dump_json(indent=2), file_name=f"report_{safe_client}.json", mime="application/json", use_container_width=True)
+        render_step_feed()
+        if st.session_state.pipeline_running:
+            st.spinner("")
+            time.sleep(1.5)
+            st.rerun()
+        if st.session_state.pipeline_error:
+            st.error(f"Pipeline failed: {st.session_state.pipeline_error}")
+        render_completion_card()
 
 
-def render_reasoning_view() -> None:
-    """Render full traceability without boring expanders as the primary experience."""
+def render_empty_state(icon: str, title: str, subtitle: str) -> None:
+    st.markdown(
+        f"""
+<div style="text-align:center;padding:64px 24px;color:var(--text-muted);">
+  <div style="font-size:40px;margin-bottom:16px">{escape(icon)}</div>
+  <div style="font-size:16px;font-weight:700;color:var(--text-secondary)">{escape(title)}</div>
+  <div style="font-size:13px;margin-top:6px">{escape(subtitle)}</div>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_report_tab() -> None:
     report = st.session_state.report
     if report is None:
-        st.markdown("<div class='glass-card'><div class='section-title'>Reasoning stream idle</div><div class='signal-item'>Run the pipeline to unlock the audit trail.</div></div>", unsafe_allow_html=True)
+        render_empty_state("📊", "No solution generated yet", "Go to New Brief and run the pipeline first")
         return
-    selected_agents = st.multiselect("Filter agents", ["VisualAnalyst", "Parser", "SalesEngineer", "Reviewer"], default=["VisualAnalyst", "Parser", "SalesEngineer", "Reviewer"])
-    for step in report.agent_steps:
-        if step.agent_name not in selected_agents:
-            continue
+
+    metric_cols = st.columns(5)
+    total_color = "bento-green" if report.within_budget else "bento-red"
+    tech_color = "bento-green" if report.reviewer_feedback.technical_score >= 7 else "bento-amber"
+    commercial_color = "bento-green" if report.reviewer_feedback.commercial_score >= 7 else "bento-amber"
+    diversity = len(set(item.brand for item in report.line_items))
+    cards = [
+        bento_card_html("Total Quote", f"MYR {report.total_price_myr:,.0f}", f"{report.budget_utilization_pct:.1f}% of budget", total_color),
+        bento_card_html("Budget", f"MYR {report.budget_myr:,.0f}", "Within budget ✓" if report.within_budget else "Over budget ✗"),
+        bento_card_html("Technical Score", f"{report.reviewer_feedback.technical_score:.1f}/10", "DeepSeek-R1 review", tech_color),
+        bento_card_html("Commercial Score", f"{report.reviewer_feedback.commercial_score:.1f}/10", "Value for money", commercial_color),
+        bento_card_html("Vendor Diversity", f"{diversity} brands", f"across {len(report.line_items)} products", "bento-accent"),
+    ]
+    for col, card in zip(metric_cols, cards):
+        with col:
+            st.markdown(card, unsafe_allow_html=True)
+
+    st.write("")
+    status_cols = st.columns(5)
+    source_label = {"text": "📝 Text", "image": "🖼️ Vision", "combined": "📝🖼️ Combined"}.get(report.brief_source, report.brief_source)
+    statuses = [
+        ("Budget", "pass" if report.within_budget else "fail"),
+        ("Compatibility", "pass" if report.compatibility_matrix.all_compatible else "fail"),
+        ("Delivery", "pass" if report.delivery_feasible else "fail"),
+        ("Reviewer", "pass" if report.reviewer_feedback.approved else "fail"),
+        (source_label, "info"),
+    ]
+    for col, (label, kind) in zip(status_cols, statuses):
+        with col:
+            st.markdown(badge(label, kind), unsafe_allow_html=True)
+
+    section_header("Itemised Bill of Materials")
+    line_items = report.line_items
+    quote_df = pd.DataFrame(
+        [
+            {
+                "Product": item.product_name,
+                "Brand": item.brand,
+                "Category": item.category,
+                "Qty": item.quantity,
+                "Unit Price (MYR)": money(item.unit_price_myr),
+                "Subtotal (MYR)": money(item.subtotal_myr),
+                "Shipping (MYR)": money(item.shipping_fee_myr),
+                "SST (MYR)": money(item.sst_myr),
+                "TCO (MYR)": money(item.tco_myr),
+                "Confidence": item.confidence_score * 100,
+                "URL": item.product_url,
+            }
+            for item in line_items
+        ]
+    )
+    st.dataframe(
+        quote_df,
+        width="stretch",
+        height=min(400, 60 + len(line_items) * 35),
+        column_config={
+            "Confidence": st.column_config.ProgressColumn("Confidence", min_value=0, max_value=100, format="%.0f%%"),
+            "URL": st.column_config.LinkColumn("Link"),
+        },
+        hide_index=True,
+    )
+    totals = st.columns(4)
+    totals[0].metric("Total Quote", money(report.total_price_myr))
+    totals[1].metric("Total TCO", money(report.logistics_tco_total_myr))
+    totals[2].metric("Total Shipping", money(sum(item.shipping_fee_myr for item in line_items)))
+    totals[3].metric("Total SST", money(sum(item.sst_myr for item in line_items)))
+
+    left, right = st.columns([0.6, 0.4], gap="large")
+    with left:
+        section_header("Executive Summary")
+        st.markdown(f'<div class="glass-panel">{escape(report.executive_summary)}</div>', unsafe_allow_html=True)
+        section_header("Reasoning Summary")
+        st.markdown(f'<div class="glass-panel">{escape(report.reasoning_summary)}</div>', unsafe_allow_html=True)
+    with right:
+        section_header("Reviewer Assessment")
+        st.caption("Technical Score")
+        st.progress(min(max(report.reviewer_feedback.technical_score / 10, 0), 1))
+        st.caption("Commercial Score")
+        st.progress(min(max(report.reviewer_feedback.commercial_score / 10, 0), 1))
         st.markdown(
-            f"""
-<div class="stream-card">
-  <b>{escape(step.agent_name)} / iteration {step.iteration}</b><br>
-  <span>{escape(step.action)}</span><br>
-  <small>Tool: {escape(step.tool_called or "N/A")} | {escape(step.timestamp)}</small>
-  <div class="signal-item">{escape(step.tool_result_summary)}</div>
-</div>
-            """,
+            badge("Approved" if report.reviewer_feedback.approved else "Needs Review", "pass" if report.reviewer_feedback.approved else "fail"),
             unsafe_allow_html=True,
         )
-        if step.tool_args and st.session_state.get("debug_mode"):
-            st.json(step.tool_args)
-    if st.session_state.get("debug_mode"):
-        st.json(report.model_dump())
-
-
-def render_catalog_view() -> None:
-    """Render the product catalog as a visual arsenal."""
-    products = catalog.search_products(in_stock_only=False)
-    f1, f2, f3, f4 = st.columns(4)
-    categories = f1.multiselect("Category", catalog.get_all_categories())
-    max_price = f2.slider("Max price", 0, 50000, 50000, 500)
-    in_stock_only = f3.toggle("In stock only", value=True)
-    text_search = f4.text_input("Search")
-    filtered = []
-    for product in products:
-        if categories and product.category not in categories:
-            continue
-        if product.price_myr > max_price:
-            continue
-        if in_stock_only and not product.in_stock:
-            continue
-        if text_search and text_search.lower() not in f"{product.name} {product.brand}".lower():
-            continue
-        filtered.append(product)
-    cards = []
-    for product in filtered[:40]:
-        cards.append(
-            f"""
-<div class="catalog-card">
-  <span class="tag">{escape(product.category)}</span>
-  <b>{escape(product.name)}</b><br>
-  <small>{escape(product.brand)} | {escape(", ".join(product.available_regions))}</small>
-  <div class="price">{money(product.price_myr)}</div>
-  <small>{escape(short(product.url, 95))}</small>
-</div>
-            """
+        st.markdown(
+            f'<div class="glass-panel">{escape(report.reviewer_feedback.overall_assessment)}</div>',
+            unsafe_allow_html=True,
         )
-    st.markdown(f"<div class='catalog-grid'>{''.join(cards)}</div>", unsafe_allow_html=True)
+        for flag in report.reviewer_feedback.risk_flags:
+            st.warning(flag)
+        for suggestion in report.reviewer_feedback.suggestions:
+            st.info(suggestion)
+
+    section_header("Compatibility Matrix")
+    compatibility_df = pd.DataFrame(
+        [
+            {
+                "Product A": pair.get("a_name", pair["a"]),
+                "Product B": pair.get("b_name", pair["b"]),
+                "Compatible": "✅" if pair["compatible"] else "❌",
+                "Reason": pair["reason"],
+            }
+            for pair in report.compatibility_matrix.pairs_checked
+        ]
+    )
+    if compatibility_df.empty:
+        st.info("No compatibility pairs were checked for this solution.")
+    else:
+        st.dataframe(compatibility_df, width="stretch", hide_index=True)
+
+    history = report.self_critique_history
+    with st.expander(f"🔄 Self-Critique Log ({len(history)} iterations)"):
+        for item in history:
+            c1, c2 = st.columns([1, 4])
+            with c1:
+                st.markdown(
+                    badge("Pass ✅" if item.passed else "Fail ❌", "pass" if item.passed else "fail"),
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                if item.issues_found:
+                    st.markdown("**Issues**")
+                    st.markdown("\n".join(f"- {escape(issue)}" for issue in item.issues_found))
+                if item.improvements_made:
+                    st.markdown("**Improvements**")
+                    st.markdown("\n".join(f"- {escape(improvement)}" for improvement in item.improvements_made))
+
+    section_header("Logistics")
+    l1, l2 = st.columns(2)
+    with l1:
+        st.info(report.delivery_timeline_estimate)
+    with l2:
+        st.metric("Total TCO", money(report.logistics_tco_total_myr), delta="incl. shipping + SST")
+
+    section_header("What-If Budget Analyser")
+    st.caption(
+        "Adjust the budget to instantly see how the solution changes — "
+        "no need to re-run the full pipeline."
+    )
+    budget_delta_pct = st.slider(
+        "Budget adjustment (%)",
+        min_value=-30,
+        max_value=50,
+        value=0,
+        step=5,
+        format="%d%%",
+    )
+    if budget_delta_pct != 0 and st.session_state.report is not None:
+        report = st.session_state.report
+        adjusted_budget = report.budget_myr * (1 + budget_delta_pct / 100)
+        product_ids = [item.product_id for item in report.line_items]
+        quantities = {item.product_id: item.quantity for item in report.line_items}
+        new_fit = calculate_budget_fit(product_ids, quantities, adjusted_budget)
+        if new_fit.success:
+            data = new_fit.data
+            new_total = data["total_myr"]
+            new_remaining = data["remaining_myr"]
+            new_utilization = data["utilization_pct"]
+            new_within = data["within_budget"]
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Adjusted Budget", money(adjusted_budget), delta=f"{budget_delta_pct:+d}% vs original")
+            col2.metric("Quote Total (unchanged)", money(new_total), delta=money(new_remaining) + " remaining")
+            col3.metric(
+                "Utilization at New Budget",
+                pct(new_utilization),
+                delta="Within budget ✅" if new_within else "Over budget ❌",
+            )
+            if not new_within:
+                st.warning(
+                    f"At MYR {adjusted_budget:,.0f}, the current quote exceeds the budget "
+                    f"by MYR {abs(new_remaining):,.0f}. Consider reducing quantities or "
+                    f"selecting lower-cost alternatives."
+                )
+            elif new_utilization < 60:
+                st.info(
+                    f"Budget utilization is only {new_utilization:.1f}%. "
+                    f"You have MYR {new_remaining:,.0f} remaining — consider "
+                    f"upgrading key components for better value."
+                )
+            else:
+                st.success(f"Solution fits within the adjusted budget with {new_utilization:.1f}% utilization.")
+        else:
+            st.error(f"Budget analysis failed: {new_fit.error}")
+
+    section_header("Export")
+    d1, d2 = st.columns(2)
+    safe_client = report.client_name.replace(" ", "_")
+    with d1:
+        try:
+            pdf_bytes = generate_pdf(report)
+            st.download_button(
+                "📄 Download PDF Quote",
+                data=pdf_bytes,
+                file_name=f"quote_{safe_client}.pdf",
+                mime="application/pdf",
+                width="stretch",
+            )
+        except Exception as exc:
+            st.error(f"PDF generation failed: {exc}")
+    with d2:
+        st.download_button(
+            "📋 Download JSON Report",
+            data=report.model_dump_json(indent=2),
+            file_name=f"report_{safe_client}.json",
+            mime="application/json",
+            width="stretch",
+        )
+
+
+def render_reasoning_tab() -> None:
+    report = st.session_state.report
+    if report is None:
+        render_empty_state("🔍", "No reasoning log yet", "Go to New Brief and run the pipeline first")
+        return
+    section_header("Full Agent Reasoning Log")
+    f1, f2 = st.columns([2, 1])
+    with f1:
+        agent_filter = st.multiselect(
+            "Filter by agent",
+            ["VisualAnalyst", "Parser", "SalesEngineer", "Reviewer"],
+            default=["VisualAnalyst", "Parser", "SalesEngineer", "Reviewer"],
+            label_visibility="collapsed",
+        )
+    with f2:
+        st.caption(f"{len(report.agent_steps)} total steps")
+
+    filtered = [step for step in report.agent_steps if step.agent_name in agent_filter]
+    for step in filtered:
+        with st.expander(f"{step.agent_name} · Step {step.iteration} — {step.action[:65]}"):
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.markdown(f"**Agent:** {step.agent_name}")
+                st.markdown(f"**Time:** {step.timestamp[11:19] if step.timestamp else ''}")
+                if step.tool_called:
+                    st.markdown(f"**Tool:** `{step.tool_called}`")
+            with c2:
+                st.markdown(f"**Result:** {step.tool_result_summary}")
+                if step.tool_args:
+                    with st.expander("Tool arguments"):
+                        st.json(step.tool_args)
+
+
+def render_catalog_tab() -> None:
+    section_header("Product Catalog")
+    categories = get_all_categories()
+    f1, f2, f3, f4 = st.columns([2, 2, 1, 2])
+    with f1:
+        cat_filter = st.multiselect(
+            "Categories",
+            categories,
+            default=categories,
+            label_visibility="collapsed",
+            placeholder="All categories",
+        )
+    with f2:
+        max_price = st.slider("Max price (MYR)", 0, 15000, 15000, step=100, label_visibility="collapsed")
+    with f3:
+        in_stock = st.toggle("In stock", value=True)
+    with f4:
+        search_text = st.text_input("Search", placeholder="Search products...", label_visibility="collapsed")
+
+    products = []
+    for category_name in cat_filter or categories:
+        products.extend(search_products(category=category_name, max_price=max_price, in_stock_only=in_stock))
+
+    seen = set()
+    unique_products = []
+    for product in products:
+        if product.id in seen:
+            continue
+        seen.add(product.id)
+        if search_text.strip():
+            needle = search_text.lower()
+            if needle not in product.name.lower() and needle not in product.brand.lower():
+                continue
+        unique_products.append(product)
+
+    if not unique_products:
+        st.info("No products match the current filters.")
+    else:
+        df = pd.DataFrame(
+            [
+                {
+                    "ID": product.id,
+                    "Product": product.name,
+                    "Brand": product.brand,
+                    "Category": product.category,
+                    "Price (MYR)": money(product.price_myr),
+                    "In Stock": "✅" if product.in_stock else "❌",
+                    "Regions": ", ".join(product.available_regions),
+                    "URL": product.url,
+                }
+                for product in unique_products
+            ]
+        )
+        st.dataframe(
+            df,
+            width="stretch",
+            column_config={"URL": st.column_config.LinkColumn("Link")},
+            hide_index=True,
+        )
+        st.caption(f"Showing {len(unique_products)} products")
 
 
 inject_css()
+catalog.init_db()
+
+for key, value in {
+    "report": None,
+    "agent_steps": [],
+    "pipeline_running": False,
+    "pipeline_error": None,
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
 render_sidebar()
-render_shell_open()
-render_hero()
-st.markdown("<div style='padding: 0 30px 30px'>", unsafe_allow_html=True)
-view = render_nav()
-if view == "Command":
-    render_command_view()
-elif view == "Quote":
-    render_quote_view()
-elif view == "Reasoning":
-    render_reasoning_view()
-else:
-    render_catalog_view()
-st.markdown("</div>", unsafe_allow_html=True)
-render_shell_close()
+render_page_header()
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "🚀  New Brief",
+        "📊  Solution Report",
+        "🔍  Agent Reasoning",
+        "📦  Catalog",
+    ]
+)
+
+with tab1:
+    render_new_brief_tab()
+with tab2:
+    render_report_tab()
+with tab3:
+    render_reasoning_tab()
+with tab4:
+    render_catalog_tab()

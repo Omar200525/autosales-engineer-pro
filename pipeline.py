@@ -163,7 +163,16 @@ class SalesEngineerPipeline:
         for a_id, b_id in itertools.combinations(selected_ids, 2):
             result = check_compatibility(a_id, b_id)
             data = result.data if result.success else {"compatible": False, "reason": result.error or "Unknown"}
-            pair = {"a": a_id, "b": b_id, "compatible": bool(data["compatible"]), "reason": data["reason"]}
+            a_product = get_product_by_id(a_id)
+            b_product = get_product_by_id(b_id)
+            pair = {
+                "a": a_id,
+                "b": b_id,
+                "a_name": a_product.name if a_product else a_id,
+                "b_name": b_product.name if b_product else b_id,
+                "compatible": bool(data["compatible"]),
+                "reason": data["reason"],
+            }
             pairs.append(pair)
             if not pair["compatible"]:
                 issues.append(f"{a_id} and {b_id}: {pair['reason']}")
