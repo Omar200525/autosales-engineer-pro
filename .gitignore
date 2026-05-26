@@ -1,6 +1,23 @@
 .env
-catalog.db
-__pycache__/
-*.pyc
 .streamlit/secrets.toml
+catalog.db
 
+/.venv/
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+.DS_Store
+.idea/
+.vscode/
