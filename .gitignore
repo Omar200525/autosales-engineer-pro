@@ -1,0 +1,6 @@
+.env
+catalog.db
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+
