@@ -2,16 +2,29 @@
 
 AutoSales Engineer Pro is a Streamlit app for AI-assisted IT sales engineering. It turns a client brief or uploaded image into a structured procurement brief, builds a catalog-backed solution, reviews the result, and exports a quote-ready report.
 
-Built for the APU AI Marathon 2026 Track 1 challenge.
+Built for the APU AI Marathon 2026 Track 1 challenge: **The Autonomous Sales Engineer**.
 
 ## What It Does
 
 - Converts text or image briefs into structured IT requirements.
-- Builds a proposed bill of materials from a local SQLite catalog.
-- Uses agent reasoning, self-critique, and reviewer checks to improve quality.
+- Uses LLM-backed agents to refine requirements, select a compatible solution, and review proposal quality.
+- Builds a proposed bill of materials from a local SQLite catalog with real product URLs and MYR pricing.
+- Uses deterministic guardrails for budget math, delivery, compatibility, shipping, SST, and fallback resilience.
+- Produces quote-review evidence such as requirement coverage, supplier source proof, and agentic trace summaries without cluttering the client-facing proposal.
 - Falls back to local deterministic logic when cloud providers fail or rate-limit.
 - Generates a Streamlit solution report and PDF quote.
 - Supports Malaysian IT procurement details such as MYR pricing, delivery regions, shipping, and SST.
+
+## AI Marathon Alignment
+
+The system is aligned to the guide book's Track 1 requirements:
+
+- **LLM & Agentic usage:** Groq refines requirements, Chutes performs bounded AI quote planning over catalog evidence, and the reviewer uses AI QA grounded by deterministic validation.
+- **Constraint-based discovery:** the Sales Engineer searches catalog categories, rejects invalid product IDs, checks budget limits, preserves requirement coverage, and validates compatibility.
+- **Logistics & fulfillment reasoning:** delivery region checks, estimated shipping fees, SST, delivery timeline, and total cost of ownership are included in the final report.
+- **Dynamic quote generation:** output includes itemized products, supplier URLs, bill of materials, reasoning summary, recommendations, PDF export, and Telegram delivery.
+- **Technical implementation:** AI outputs are validated against the local catalog so the prototype is demonstrable, reliable, and resistant to hallucinated prices or products.
+- **Submission support:** the repository includes separate Gemini-ready Markdown prompts for the pitch deck and documentation PDF, while the app UI stays focused on quote review.
 
 ## Agent Pipeline
 
@@ -20,10 +33,10 @@ Client Text / Image
         |
         v
 Visual Analyst -> Parser -> Sales Engineer -> Reviewer
-   Gemini        Groq      Chutes/Groq/Local  Chutes/Groq/Local
+   Gemini        Groq      Chutes + tools     Chutes/Groq/Local
         |
         v
-Streamlit report + PDF quote
+React/Streamlit report + PDF quote + Telegram updates
 ```
 
 The live pipeline monitor shows each major step so judges and users can see why a solution was selected.
@@ -96,6 +109,77 @@ Open the app at:
 http://localhost:8501
 ```
 
+## FastAPI + React Preview
+
+The React migration has started. The existing Streamlit app still works, and the
+new backend/frontend path is available for development.
+
+Start the API:
+
+```bash
+uvicorn backend.app:app --reload --port 8000
+```
+
+In another terminal, start the React app:
+
+```bash
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Open the React app at:
+
+```text
+http://localhost:5173
+```
+
+The React app calls the FastAPI backend for catalog data, pipeline run creation,
+live pipeline events, and PDF export. The backend keeps using the existing agent
+pipeline in `pipeline.py`.
+
+## Telegram Notifications
+
+The FastAPI backend can automatically send a Telegram message when a pipeline
+run completes or fails. Successful runs include a concise quote summary and, by
+default, the generated quote PDF. The bot can also respond to commands and show
+live quote progress while the FastAPI backend is running.
+
+1. Create a bot with Telegram BotFather and copy the bot token.
+2. Add the bot to the target chat or channel.
+3. Find the target chat ID. Channel and group IDs can be negative; keep the
+        value as text in `.env`.
+4. Set these values in `.env`, then restart the FastAPI backend:
+
+```env
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+TELEGRAM_CHAT_ID=your_chat_or_channel_id
+TELEGRAM_INCLUDE_PDF=true
+TELEGRAM_BOT_POLLING_ENABLED=true
+```
+
+Telegram notification failures are non-blocking. A quote run can still complete
+even if Telegram rejects the token, the chat ID is wrong, or the network is
+temporarily unavailable.
+
+Supported Telegram commands:
+
+```text
+/start - connect this chat and subscribe to live quote progress
+/help - show commands
+/status - show the latest run
+/status <run_id> - show a specific run
+/quote <brief> - start a quote from this chat
+/subscribe - receive live run progress in this chat
+/unsubscribe - stop live progress in this chat
+```
+
+You can also paste a full procurement brief directly into the chat. If it looks
+like a brief with fields such as `Client:`, `Use case:`, `Budget:`, and
+`Delivery location:`, the bot starts a pipeline run automatically.
+
 ## Environment Variables
 
 Minimum recommended keys:
@@ -106,6 +190,14 @@ Minimum recommended keys:
 | `CHUTES_API_KEY` | Yes | Sales Engineer and Reviewer primary model calls |
 | `GEMINI_API_KEY` | Optional | Image brief analysis |
 | `TAVILY_API_KEY` | Optional | Live web product search |
+| `API_CORS_ORIGINS` | Optional | Allowed React frontend origins for FastAPI |
+| `TELEGRAM_ENABLED` | Optional | Enables automatic Telegram completion/failure notifications |
+| `TELEGRAM_BOT_TOKEN` | Optional | Telegram bot token, required only when Telegram is enabled |
+| `TELEGRAM_CHAT_ID` | Optional | Fixed Telegram chat/channel destination, required only when enabled |
+| `TELEGRAM_INCLUDE_PDF` | Optional | Attach generated quote PDFs to successful Telegram notifications |
+| `TELEGRAM_BOT_POLLING_ENABLED` | Optional | Enables local long-polling command bot and live progress updates |
+| `TELEGRAM_POLLING_TIMEOUT_SECONDS` | Optional | Telegram `getUpdates` long-poll timeout |
+| `TELEGRAM_TIMEOUT_SECONDS` | Optional | Telegram Bot API request timeout |
 
 Optional model/base URL overrides:
 
@@ -115,10 +207,10 @@ Optional model/base URL overrides:
 | `GROQ_PARSER_MODEL` | `llama-3.3-70b-versatile` |
 | `GROQ_FALLBACK_MODEL` | `llama-3.1-8b-instant` |
 | `CHUTES_BASE_URL` | `https://llm.chutes.ai/v1` |
-| `ORCHESTRATOR_MODEL` | `Qwen/Qwen2.5-72B-Instruct` |
-| `REVIEWER_MODEL` | `deepseek-ai/DeepSeek-R1` |
-| `GEMINI_VISION_MODEL` | `gemini-3.5-flash` |
-| `GEMINI_FALLBACK_VISION_MODEL` | `gemini-2.5-flash` |
+| `ORCHESTRATOR_MODEL` | `Qwen/Qwen3.6-27B-TEE` |
+| `REVIEWER_MODEL` | `deepseek-ai/DeepSeek-V3.2-TEE` |
+| `GEMINI_VISION_MODEL` | `gemini-2.5-flash` |
+| `GEMINI_FALLBACK_VISION_MODEL` | `gemini-2.0-flash` |
 
 ## Why Generation Can Take Time
 

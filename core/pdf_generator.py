@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from io import BytesIO
+from typing import Any
 
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
@@ -33,7 +34,7 @@ def _money(value: float) -> str:
     return f"MYR {value:,.2f}"
 
 
-def _para(text: str, style: ParagraphStyle) -> Paragraph:
+def _para(text: Any, style: Any) -> Paragraph:
     return Paragraph(str(text).replace("\n", "<br/>"), style)
 
 
@@ -63,7 +64,7 @@ def generate_pdf(report: SolutionReport) -> bytes:
         Spacer(1, 0.15 * inch),
         _para("CONFIDENTIAL", ParagraphStyle(name="Badge", fontSize=12, textColor=WARNING, fontName="Helvetica-Bold")),
         Spacer(1, 3.7 * inch),
-        _para("Powered by Gemini 3.5 Flash with Gemini 2.5 fallback | Groq | Chutes Qwen/DeepSeek with Groq fallback", styles["SmallDark"]),
+        _para("Powered by Gemini 2.5 Flash with Gemini 2.0 fallback | Groq | Chutes Qwen/DeepSeek with Groq fallback", styles["SmallDark"]),
         PageBreak(),
     ]
 
@@ -92,7 +93,7 @@ def generate_pdf(report: SolutionReport) -> bytes:
     story += [budget_table, Spacer(1, 0.2 * inch), health, Spacer(1, 0.2 * inch), _para(report.executive_summary, styles["BodyTextDark"]), PageBreak()]
 
     story += [_para("Itemized Bill of Materials", styles["H1Navy"])]
-    rows = [["#", "Product", "Qty", "Unit", "URL", "Source", "Subtotal"]]
+    rows: list[list[Any]] = [["#", "Product", "Qty", "Unit", "URL", "Source", "Subtotal"]]
     for idx, item in enumerate(report.line_items, start=1):
         rows.append([idx, _para(item.product_name, styles["SmallDark"]), item.quantity, _money(item.unit_price_myr), _para(item.product_url, styles["SmallDark"]), item.source_platform, _money(item.subtotal_myr)])
     rows.append(["", "TOTAL", "", "", "", "", _money(report.total_price_myr)])
@@ -100,7 +101,7 @@ def generate_pdf(report: SolutionReport) -> bytes:
     bom.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), PRIMARY), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey), ("BACKGROUND", (0, 1), (-1, -2), colors.white), ("BACKGROUND", (0, -1), (-1, -1), PRIMARY), ("TEXTCOLOR", (0, -1), (-1, -1), colors.white), ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold")]))
     story += [bom, Spacer(1, 0.2 * inch), _para(f"TOTAL: {_money(report.total_price_myr)}", styles["H1Navy"]), Spacer(1, 0.25 * inch)]
     story += [_para("Logistics & Cost of Ownership", styles["H1Navy"])]
-    tco_rows = [["Product", "Shipping", "SST", "TCO"]]
+    tco_rows: list[list[Any]] = [["Product", "Shipping", "SST", "TCO"]]
     for item in report.line_items:
         tco_rows.append([_para(item.product_name, styles["SmallDark"]), _money(item.shipping_fee_myr), _money(item.sst_myr), _money(item.tco_myr)])
     tco_rows.append(["Grand Total TCO", "", "", _money(report.logistics_tco_total_myr)])
@@ -108,8 +109,26 @@ def generate_pdf(report: SolutionReport) -> bytes:
     tco.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey), ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("BACKGROUND", (0, -1), (-1, -1), PRIMARY), ("TEXTCOLOR", (0, -1), (-1, -1), colors.white)]))
     story += [tco, PageBreak()]
 
+    if report.constraint_decisions or report.supplier_evidence:
+        story += [_para("Constraint & Supplier Evidence", styles["H1Navy"])]
+        if report.constraint_decisions:
+            constraint_rows: list[list[Any]] = [["Requirement", "Status", "Evidence"]]
+            for decision in report.constraint_decisions:
+                constraint_rows.append([_para(decision.requirement, styles["SmallDark"]), decision.status.upper(), _para(decision.evidence, styles["SmallDark"])])
+            constraint_table = Table(constraint_rows, colWidths=[2.2 * inch, 0.85 * inch, 3.85 * inch], repeatRows=1)
+            constraint_table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey), ("BACKGROUND", (0, 0), (-1, 0), PRIMARY), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white)]))
+            story += [constraint_table, Spacer(1, 0.2 * inch)]
+        if report.supplier_evidence:
+            supplier_rows: list[list[Any]] = [["Product", "Source", "Region", "Confidence"]]
+            for item in report.supplier_evidence:
+                supplier_rows.append([_para(item.product_name, styles["SmallDark"]), item.source_platform, _para(item.region_status, styles["SmallDark"]), f"{item.confidence_score * 100:.0f}%"])
+            supplier_table = Table(supplier_rows, colWidths=[2.5 * inch, 1 * inch, 2.4 * inch, 0.9 * inch], repeatRows=1)
+            supplier_table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey), ("BACKGROUND", (0, 0), (-1, 0), LIGHT_BG), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold")]))
+            story += [supplier_table]
+        story += [PageBreak()]
+
     story += [_para("Technical Review", styles["H1Navy"])]
-    matrix_rows = [["Product A", "Product B", "Status", "Reason"]]
+    matrix_rows: list[list[Any]] = [["Product A", "Product B", "Status", "Reason"]]
     for pair in report.compatibility_matrix.pairs_checked:
         matrix_rows.append([
             pair.get("a_name", pair["a"]),
@@ -129,9 +148,15 @@ def generate_pdf(report: SolutionReport) -> bytes:
     story += [PageBreak()]
 
     story += [_para("Pipeline & Terms", styles["H1Navy"])]
-    story += [_para("[Gemini 3.5 Flash -> Gemini 2.5 Flash] -> [Groq Parser] -> [Chutes Qwen -> Groq] -> [Chutes DeepSeek -> Groq]<br/>Visual Analyst -> Parser Agent -> Sales Engineer -> Reviewer Agent", styles["BodyTextDark"])]
+    if report.agentic_evidence:
+        story += [_para("Agentic Evidence", styles["H1Navy"])]
+        for item in report.agentic_evidence:
+            story.append(_para(f"- {item.label}: {item.status.upper()} - {item.evidence}", styles["BodyTextDark"]))
     story += [Spacer(1, 0.2 * inch), _para("Reasoning Summary", styles["H1Navy"]), _para(report.reasoning_summary, styles["BodyTextDark"])]
     story += [Spacer(1, 0.2 * inch), _para("Delivery Timeline Estimate", styles["H1Navy"]), _para(report.delivery_timeline_estimate, styles["BodyTextDark"])]
+    if report.logistics_assumptions:
+        story += [Spacer(1, 0.2 * inch), _para("Logistics Assumptions", styles["H1Navy"])]
+        story += [_para(f"- {assumption}", styles["BodyTextDark"]) for assumption in report.logistics_assumptions]
     story += [Spacer(1, 0.2 * inch), _para("Self-Critique Iterations", styles["H1Navy"])]
     for item in report.self_critique_history:
         story.append(_para(f"Iteration {item.iteration}: {'Passed' if item.passed else 'Failed'} - {', '.join(item.issues_found) or 'No issues'}", styles["BodyTextDark"]))

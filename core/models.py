@@ -120,6 +120,46 @@ class ReviewerFeedback(BaseModel):
     commercial_score: float = Field(ge=0.0, le=10.0)
 
 
+class HackathonCriterion(BaseModel):
+    """Guide-book scoring evidence for judges."""
+
+    category: str
+    criterion: str
+    max_points: float
+    score: float
+    evidence: list[str]
+    improvement_hint: str
+
+
+class ConstraintDecision(BaseModel):
+    """How a client requirement was covered or flagged."""
+
+    requirement: str
+    status: Literal["covered", "partial", "needs_review"]
+    evidence: str
+    covered_by: list[str]
+
+
+class SupplierEvidence(BaseModel):
+    """Catalog or external supplier evidence for one selected line."""
+
+    product_id: str
+    product_name: str
+    source_platform: str
+    url: str
+    price_myr: float
+    region_status: str
+    confidence_score: float = Field(ge=0.0, le=1.0)
+
+
+class AgenticEvidence(BaseModel):
+    """Visible proof of agentic AI, tools, and guardrails."""
+
+    label: str
+    status: Literal["pass", "warn", "info"]
+    evidence: str
+
+
 class AgentStep(BaseModel):
     """A trace entry emitted by an agent."""
 
@@ -160,6 +200,15 @@ class SolutionReport(BaseModel):
     reasoning_summary: str
     delivery_timeline_estimate: str
     logistics_tco_total_myr: float
+    handbook_score_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    hackathon_scorecard: list[HackathonCriterion] = Field(default_factory=list)
+    constraint_decisions: list[ConstraintDecision] = Field(default_factory=list)
+    supplier_evidence: list[SupplierEvidence] = Field(default_factory=list)
+    agentic_evidence: list[AgenticEvidence] = Field(default_factory=list)
+    logistics_assumptions: list[str] = Field(default_factory=list)
+    architecture_diagram: str = ""
+    demo_pitch: list[str] = Field(default_factory=list)
+    next_best_enhancements: list[str] = Field(default_factory=list)
 
 
 class ToolResult(BaseModel):

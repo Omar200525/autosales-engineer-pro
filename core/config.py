@@ -21,8 +21,8 @@ def _load_env() -> None:
 _load_env()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-3.5-flash")
-GEMINI_FALLBACK_VISION_MODEL = os.getenv("GEMINI_FALLBACK_VISION_MODEL", "gemini-2.5-flash")
+GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+GEMINI_FALLBACK_VISION_MODEL = os.getenv("GEMINI_FALLBACK_VISION_MODEL", "gemini-2.0-flash")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
@@ -31,8 +31,8 @@ GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
 
 CHUTES_API_KEY = os.getenv("CHUTES_API_KEY", "")
 CHUTES_BASE_URL = os.getenv("CHUTES_BASE_URL", "https://llm.chutes.ai/v1")
-ORCHESTRATOR_MODEL = os.getenv("ORCHESTRATOR_MODEL", "Qwen/Qwen2.5-72B-Instruct")
-REVIEWER_MODEL = os.getenv("REVIEWER_MODEL", "deepseek-ai/DeepSeek-R1")
+ORCHESTRATOR_MODEL = os.getenv("ORCHESTRATOR_MODEL", "Qwen/Qwen3.6-27B-TEE")
+REVIEWER_MODEL = os.getenv("REVIEWER_MODEL", "deepseek-ai/DeepSeek-V3.2-TEE")
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 

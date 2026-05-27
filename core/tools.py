@@ -40,8 +40,30 @@ def _normalize_location(location: str) -> str:
 def _summarize(result: ToolResult) -> str:
     if not result.success:
         return result.error or "Tool failed"
+    if isinstance(result.data, list):
+        count = len(result.data)
+        names = []
+        for item in result.data[:3]:
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("product_name") or item.get("id") or item.get("url")
+                if name:
+                    names.append(str(name))
+        suffix = f"; +{count - 3} more" if count > 3 else ""
+        return f"{count} result(s): {', '.join(names)}{suffix}" if names else f"{count} result(s)"
+    if isinstance(result.data, dict):
+        if "total_myr" in result.data and "within_budget" in result.data:
+            return (
+                f"total MYR {result.data['total_myr']:,.2f}; "
+                f"within_budget={result.data['within_budget']}; "
+                f"utilization={result.data.get('utilization_pct', 0):.1f}%"
+            )
+        if "feasible" in result.data and "unavailable_products" in result.data:
+            unavailable = result.data.get("unavailable_products") or []
+            return f"delivery feasible={result.data['feasible']}; unavailable={len(unavailable)}"
+        if "compatible" in result.data and "reason" in result.data:
+            return f"compatible={result.data['compatible']}; {result.data['reason']}"
     text = json.dumps(result.data, ensure_ascii=False)
-    return text[:500]
+    return text[:220]
 
 
 def _extract_price_myr(text: str) -> Optional[float]:
@@ -85,12 +107,32 @@ def check_compatibility(product_a_id: str, product_b_id: str) -> ToolResult:
         return _result(False, None, "One or both products were not found")
     explicit = a.id in b.compatible_with or b.id in a.compatible_with
     same_category = a.category == b.category
-    compatible = explicit or same_category
+    category_pair = frozenset({a.category, b.category})
+    broadly_compatible = category_pair in {
+        frozenset({"networking", "compute"}),
+        frozenset({"networking", "storage"}),
+        frozenset({"networking", "software_license"}),
+        frozenset({"networking", "peripheral"}),
+        frozenset({"compute", "storage"}),
+        frozenset({"compute", "display"}),
+        frozenset({"compute", "peripheral"}),
+        frozenset({"compute", "software_license"}),
+        frozenset({"storage", "software_license"}),
+        frozenset({"storage", "peripheral"}),
+        frozenset({"peripheral", "software_license"}),
+        frozenset({"display", "peripheral"}),
+    }
+    power_support = "power" in category_pair and bool(category_pair - {"power"})
+    compatible = explicit or same_category or broadly_compatible or power_support
     reason = (
         "Explicitly listed as compatible"
         if explicit
         else "Same category products are considered compatible"
         if same_category
+        else "Category-level compatibility is acceptable for this solution role"
+        if broadly_compatible
+        else "Power products are considered support infrastructure for selected equipment"
+        if power_support
         else "No explicit compatibility link and categories differ"
     )
     return _result(True, {"compatible": compatible, "reason": reason, "product_a": a.name, "product_b": b.name})

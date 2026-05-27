@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import queue
 import re
+import threading
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
 def strip_json_fences(text: str) -> str:
@@ -48,3 +53,24 @@ def friendly_api_error(provider: str, model: str, base_url: str, exc: Exception)
         f"{provider} API call failed for model '{model}' at '{base_url}'. "
         f"Check the provider base URL, model access, and API key. Details: {clean}"
     )
+
+
+def run_with_deadline(work: Callable[[], T], timeout_seconds: float, label: str) -> T:
+    """Run blocking provider work with a hard application-level deadline."""
+    result_queue: queue.Queue[tuple[bool, T | BaseException]] = queue.Queue(maxsize=1)
+
+    def worker() -> None:
+        try:
+            result_queue.put((True, work()))
+        except BaseException as exc:  # pragma: no cover - defensive around provider SDKs
+            result_queue.put((False, exc))
+
+    thread = threading.Thread(target=worker, name=f"deadline-{label}", daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        raise TimeoutError(f"{label} timed out after {timeout_seconds:.0f}s")
+    ok, value = result_queue.get_nowait()
+    if ok:
+        return value  # type: ignore[return-value]
+    raise value
