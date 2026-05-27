@@ -1,6 +1,6 @@
 # AutoSales Engineer Pro
 
-AutoSales Engineer Pro is a Streamlit app for AI-assisted IT sales engineering. It turns a client brief or uploaded image into a structured procurement brief, builds a catalog-backed solution, reviews the result, and exports a quote-ready report.
+AutoSales Engineer Pro is an AI-assisted IT sales engineering platform. It turns a client brief or uploaded image into structured procurement requirements, builds a catalog-backed solution, reviews the result, and exports a quote-ready report.
 
 Built for the APU AI Marathon 2026 Track 1 challenge: **The Autonomous Sales Engineer**.
 
@@ -12,7 +12,7 @@ Built for the APU AI Marathon 2026 Track 1 challenge: **The Autonomous Sales Eng
 - Uses deterministic guardrails for budget math, delivery, compatibility, shipping, SST, and fallback resilience.
 - Produces quote-review evidence such as requirement coverage, supplier source proof, and agentic trace summaries without cluttering the client-facing proposal.
 - Falls back to local deterministic logic when cloud providers fail or rate-limit.
-- Generates a Streamlit solution report and PDF quote.
+- Generates an interactive React/FastAPI solution report, PDF quote, and optional Telegram updates.
 - Supports Malaysian IT procurement details such as MYR pricing, delivery regions, shipping, and SST.
 
 ## AI Marathon Alignment
@@ -36,7 +36,7 @@ Visual Analyst -> Parser -> Sales Engineer -> Reviewer
    Gemini        Groq      Chutes + tools     Chutes/Groq/Local
         |
         v
-React/Streamlit report + PDF quote + Telegram updates
+React/FastAPI report + PDF quote + Telegram updates
 ```
 
 The live pipeline monitor shows each major step so judges and users can see why a solution was selected.
@@ -44,7 +44,9 @@ The live pipeline monitor shows each major step so judges and users can see why 
 ## Tech Stack
 
 - Python 3.10+
-- Streamlit
+- FastAPI
+- React + Vite + TypeScript
+- Streamlit legacy UI
 - OpenAI-compatible clients
 - Groq
 - Chutes AI
@@ -79,7 +81,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -97,7 +99,33 @@ On macOS/Linux:
 cp .env.example .env
 ```
 
-Fill in `.env`, then run:
+Fill in `.env`, then start the FastAPI backend:
+
+```bash
+uvicorn backend.app:app --reload --port 8000
+```
+
+In another terminal, start the React frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the app at:
+
+```text
+http://localhost:5173
+```
+
+The React app calls the FastAPI backend for catalog data, pipeline run creation,
+live pipeline events, and PDF export. The backend keeps using the existing agent
+pipeline in `pipeline.py`.
+
+## Streamlit Legacy UI
+
+The original Streamlit UI is still available as a fallback/demo path:
 
 ```bash
 streamlit run main.py
@@ -108,36 +136,6 @@ Open the app at:
 ```text
 http://localhost:8501
 ```
-
-## FastAPI + React Preview
-
-The React migration has started. The existing Streamlit app still works, and the
-new backend/frontend path is available for development.
-
-Start the API:
-
-```bash
-uvicorn backend.app:app --reload --port 8000
-```
-
-In another terminal, start the React app:
-
-```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
-```
-
-Open the React app at:
-
-```text
-http://localhost:5173
-```
-
-The React app calls the FastAPI backend for catalog data, pipeline run creation,
-live pipeline events, and PDF export. The backend keeps using the existing agent
-pipeline in `pipeline.py`.
 
 ## Telegram Notifications
 
@@ -247,6 +245,14 @@ The generated quote package includes:
 - Reviewer technical and commercial scores
 - PDF export
 
+## Submission Checklist
+
+- Run the FastAPI backend and React frontend before judging.
+- Confirm `.env` contains `GROQ_API_KEY` and `CHUTES_API_KEY`.
+- Add `GEMINI_API_KEY` if image brief analysis will be demonstrated.
+- Keep `.env` private; use `.env.example` for public configuration.
+- Use the generated PDF export as the quote-ready deliverable.
+
 ## Project Structure
 
 ```text
@@ -261,22 +267,44 @@ autosales-engineer-pro/
 |   |-- reviewer_agent.py
 |   |-- sales_engineer_agent.py
 |   `-- visual_analyst_agent.py
-`-- core/
-    |-- catalog.py
-    |-- config.py
-    |-- fallbacks.py
-    |-- llm_utils.py
-    |-- models.py
-    |-- pdf_generator.py
-    `-- tools.py
+|-- backend/
+|   |-- app.py
+|   |-- run_store.py
+|   |-- schemas.py
+|   |-- telegram_bot.py
+|   `-- telegram_notifications.py
+|-- core/
+|   |-- catalog.py
+|   |-- config.py
+|   |-- fallbacks.py
+|   |-- llm_utils.py
+|   |-- models.py
+|   |-- pdf_generator.py
+|   |-- telegram_client.py
+|   |-- telegram_config.py
+|   `-- tools.py
+|-- frontend/
+|   |-- package.json
+|   |-- vite.config.ts
+|   `-- src/
+|       |-- App.tsx
+|       |-- api.ts
+|       |-- main.tsx
+|       |-- styles.css
+|       `-- types.ts
+`-- tests/
+    |-- test_backend_api.py
+    |-- test_sales_engineer_fast_planner.py
+    `-- test_telegram_notifications.py
 ```
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| Missing Groq key | Add `GROQ_API_KEY` to `.env`, then restart Streamlit |
-| Missing Chutes key | Add `CHUTES_API_KEY` to `.env`, then restart Streamlit |
+| Missing Groq key | Add `GROQ_API_KEY` to `.env`, then restart the backend |
+| Missing Chutes key | Add `CHUTES_API_KEY` to `.env`, then restart the backend |
+| React app cannot reach backend | Start `uvicorn backend.app:app --reload --port 8000` and check `API_CORS_ORIGINS` |
 | Image upload does not analyze | Add `GEMINI_API_KEY` |
 | Web search returns no results | Normal; the local catalog fallback still works |
 | `catalog.db locked` | Stop Streamlit, delete `catalog.db`, restart |
