@@ -1,12 +1,12 @@
 # AutoSales Engineer Pro
 
-AutoSales Engineer Pro is a Vite + React frontend with a FastAPI backend for AI-assisted IT sales engineering. It turns a client brief or image into a structured solution, validates the result through multiple agents, and produces a quote-ready report with supporting rationale.
+AutoSales Engineer Pro is a Vite + React frontend with a FastAPI backend for AI-assisted IT sales engineering. It converts client briefs or uploaded images into structured procurement requests, builds a catalog-backed solution, reviews it with multiple agents, and exports a quote-ready report with reasoning and delivery details.
 
 ## Overview
 
-The application runs a four-agent pipeline:
+The system runs a four-agent pipeline:
 
-```
+```text
 Client Text / Image
     |
     v
@@ -21,19 +21,23 @@ Visual Analyst  ->  Parser  ->  Sales Engineer  ->  Reviewer
 
 Each stage adds structure and validation:
 
-- The Sales Engineer designs a compatible solution using tools and catalog data.
-- The Reviewer performs a final quality and commercial review before delivery.
+- The Visual Analyst extracts text and context from uploaded images.
+- The Parser turns the raw brief into a structured procurement request.
+- The Sales Engineer builds a compatible solution from the local catalog and helper tools.
+- The Reviewer checks technical quality, commercial fit, and delivery feasibility.
 
 ## Key Features
 
-- Image-to-brief extraction for whiteboards, RFQs, diagrams, and server-room photos.
-- Structured procurement parsing for Malaysian IT sales workflows.
-- Tool-assisted solution generation with catalog search, compatibility checks, budget fit, and delivery validation.
-- Self-critique and reviewer feedback loops for higher-quality outputs.
-- Local SQLite catalog fallback for resilient offline or provider-limited operation.
-- Optional web product search when `TAVILY_API_KEY` is available.
-- Professional quote export with line items, totals, reasoning, and delivery estimates.
-- Clean React dashboard with a live pipeline monitor.
+- Text and image brief intake for sales discovery, RFQs, whiteboards, diagrams, and server-room photos.
+- Structured procurement parsing for Malaysian IT workflows.
+- Tool-assisted solution generation with catalog search, compatibility checks, budget fit, delivery validation, and alternatives.
+- Multi-agent reasoning with self-critique and reviewer QA.
+- Local SQLite catalog fallback when cloud providers are unavailable or rate limited.
+- Optional live web product search when `TAVILY_API_KEY` is configured.
+- PDF quote generation with line items, totals, delivery details, and reviewer feedback.
+- React/Vite frontend for a modern quote and pipeline experience.
+- FastAPI backend with SSE-based live pipeline updates.
+- Optional Telegram bot for live progress, status checks, and quote creation.
 
 ## Technology Stack
 
@@ -42,18 +46,17 @@ Each stage adds structure and validation:
 - React frontend (Vite)
 - OpenAI-compatible provider clients
 - Pydantic
-- Rich
-- ReportLab
 - SQLite
+- ReportLab
 - Tavily search integration
+- Telegram Bot API integration
 
 ## Requirements
 
-You will need:
-
 - Python 3.10 or later
+- Node.js for the Vite frontend
 - API keys for the providers you want to use
-- A virtual environment for local development
+- Optional Telegram bot token and chat ID for bot-based runs and notifications
 
 ## Setup
 
@@ -64,9 +67,15 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env     # Windows
 # or: cp .env.example .env  # macOS/Linux
+cd frontend
+npm install
 ```
 
-Update `.env` with your provider keys and preferred models:
+Update `.env` with your provider keys and optional Telegram settings.
+
+## Environment Variables
+
+Core model/provider settings:
 
 ```text
 GEMINI_API_KEY=your_gemini_key
@@ -83,35 +92,61 @@ REVIEWER_MODEL=deepseek-ai/DeepSeek-R1
 TAVILY_API_KEY=tvly_your_key_here
 ```
 
-## Run (development)
+Telegram bot settings:
 
-Start the backend (FastAPI):
+```text
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=123456:abc...
+TELEGRAM_CHAT_ID=123456789
+TELEGRAM_INCLUDE_PDF=true
+TELEGRAM_BOT_POLLING_ENABLED=true
+TELEGRAM_POLLING_TIMEOUT_SECONDS=20
+TELEGRAM_TIMEOUT_SECONDS=12
+TELEGRAM_API_BASE_URL=https://api.telegram.org
+```
+
+## Run
+
+Start the backend:
 
 ```bash
 c:/Hackathon/.venv/Scripts/python.exe -m uvicorn backend.app:app --reload --port 8000
 ```
 
-Start the frontend (Vite):
+Start the frontend:
 
 ```bash
 cd frontend
-npm install
 npm run dev -- --host
 ```
 
 Open the UI at `http://localhost:5173` and the API at `http://127.0.0.1:8000`.
 
-The application creates `catalog.db` on backend startup. That file is intentionally gitignored. If Tavily is not configured or unavailable, the backend continues with the local SQLite catalog.
+## Telegram Bot
+
+When Telegram is enabled, the backend starts a small long-polling bot that can subscribe a chat to live run progress and start quote runs directly from Telegram.
+
+Commands:
+
+- `/start` connects the chat and subscribes it to live quote progress.
+- `/help` shows the available commands.
+- `/status` shows the latest run.
+- `/status <run_id>` shows a specific run.
+- `/quote <brief>` starts a quote from the chat.
+- `/subscribe` enables live progress for the chat.
+- `/unsubscribe` stops live progress in the chat.
+
+You can also paste a full client brief directly into the chat. If Telegram polling is enabled and the text looks like a brief, the bot can start a quote automatically.
 
 ## How To Use
 
-1. Open the app in the React frontend.
-2. Choose an intake mode: text, image, or both.
-3. Enter the client brief or upload an image.
-4. Launch the agent pipeline.
-5. Review the generated quote, reasoning, and PDF output.
+1. Open the React frontend.
+2. Enter a text brief or upload an image.
+3. Launch the agent pipeline.
+4. Review the generated quote, reasoning, and PDF output.
+5. Optionally use the Telegram bot to start a run or track progress.
 
-## Example Text Brief
+## Example Brief
 
 ```text
 Client: Acme KL Services
@@ -127,15 +162,6 @@ Specific requirements:
 - Video conferencing room setup
 ```
 
-## Example Image Briefs
-
-Useful uploads include:
-
-- A whiteboard photo listing budget, users, office location, and device needs.
-- A scanned RFQ document with procurement requirements.
-- A hand-drawn network diagram with router, switch, AP, firewall, and NAS labels.
-- A photo of an existing server room or network rack.
-
 ## Pipeline Behavior
 
 The pipeline is designed to stay resilient when provider limits or tool failures occur:
@@ -143,7 +169,7 @@ The pipeline is designed to stay resilient when provider limits or tool failures
 - The Sales Engineer can fall back to a deterministic local catalog builder.
 - Groq prompts are compacted to reduce request-size and TPM issues.
 - The Reviewer can use a fallback path if the primary provider is unavailable.
-- The UI shows a clean live pipeline monitor so you can see which agent is active.
+- The UI shows a live pipeline monitor so you can see which agent is active.
 
 ## Output
 
@@ -167,8 +193,12 @@ autosales-engineer-pro/
 │   ├── parser_agent.py
 │   ├── sales_engineer_agent.py
 │   └── reviewer_agent.py
+├── backend/
+│   ├── app.py
+│   ├── telegram_bot.py
+│   ├── telegram_notifications.py
+│   └── run_store.py
 ├── core/
-│   ├── __init__.py
 │   ├── catalog.py
 │   ├── config.py
 │   ├── fallbacks.py
@@ -177,6 +207,7 @@ autosales-engineer-pro/
 │   ├── models.py
 │   ├── pdf_generator.py
 │   └── tools.py
+├── frontend/
 ├── requirements.txt
 ├── README.md
 └── .env.example
@@ -184,6 +215,6 @@ autosales-engineer-pro/
 
 ## Notes
 
-- The app is built for Malaysian IT procurement workflows.
-- Local fallback behavior is intentional and helps keep the pipeline usable when external services are rate limited or unavailable.
-- If you want, I can also add badges, screenshots, or a shorter executive summary section.
+- Do not commit `.env`; it contains private API keys.
+- Use `.env.example` as the public template.
+- The backend loads `.env` from the app directory so tools and services can read configuration.
