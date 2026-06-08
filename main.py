@@ -29,11 +29,8 @@ def inject_css() -> None:
     st.markdown(
         """
 <style>
-</style>
-
 /* ── BASE ── */
 html, body, [data-testid="stAppViewContainer"] {
-<<<<<<< Updated upstream
   background: var(--bg-base) !important;
   color: var(--text-primary) !important;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif !important;
@@ -395,7 +392,8 @@ footer { visibility: hidden; }
   .bento-value { font-size: 24px; }
   .pipeline-track { overflow-x: auto; }
   .pipe-node { min-width: 96px; }
-=======
+}
+html, body, [data-testid="stAppViewContainer"] {
   background:
     radial-gradient(ellipse 60% 40% at 15% 0%,
       rgba(99,102,241,.18) 0%, transparent 55%),
@@ -1034,7 +1032,6 @@ footer { visibility: hidden; }
     border-left: none;
     border-top: 1px solid var(--line);
   }
->>>>>>> Stashed changes
 }
 </style>
         """,
@@ -1125,8 +1122,6 @@ def render_page_header() -> None:
 def render_sidebar() -> None:
     with st.sidebar:
         st.markdown(
-<<<<<<< Updated upstream
-=======
             "<div style='padding:6px 0 14px'>"
             "<div style='font-size:17px;font-weight:900;color:#eef2ff;"
             "letter-spacing:-.01em'>⚡ AE Pro</div>"
@@ -1144,63 +1139,6 @@ def render_sidebar() -> None:
         st.metric("Categories", len(stats["categories"]))
         st.caption(f"Range: {money(stats['min_price'])} - {money(stats['max_price'])}")
         st.divider()
-
-
-def run_pipeline(uses_text: bool, uses_image: bool, uploaded_image) -> None:
-    """Validate input and run the pipeline."""
-    if uses_text and (not st.session_state.get("client_name") or not st.session_state.get("use_case")):
-        st.error("Client name and use case are required for text briefs.")
-        return
-    if uses_image and uploaded_image is None:
-        st.error("Upload a supported image for visual extraction.")
-        return
-    st.session_state.pipeline_running = True
-    st.session_state.agent_steps = []
-    st.session_state.pipeline_error = None
-    try:
-        raw_brief = build_raw_brief() if uses_text else ""
-        image_bytes = uploaded_image.getvalue() if uploaded_image else None
-        media_type = uploaded_image.type if uploaded_image else None
-        launch = st.empty()
-        launch.markdown(
->>>>>>> Stashed changes
-            """
-<div style="padding:8px 0 16px">
-  <div style="font-size:18px;font-weight:800;color:var(--text-primary);letter-spacing:-0.02em">
-    ⚡ AutoSales Pro
-  </div>
-  <div style="font-size:11px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">
-    AI Sales Engineer
-  </div>
-</div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.divider()
-        st.markdown('<div class="section-header">Agent Pipeline</div>', unsafe_allow_html=True)
-        rows = [
-            ("#8b5cf6", "Visual Analyst", "Gemini 3.5 Flash"),
-            ("#06b6d4", "Parser", "Groq Llama 3.3 70B"),
-            ("#10b981", "Sales Engineer", "Qwen 2.5 72B"),
-            ("#f59e0b", "Reviewer", "DeepSeek-R1"),
-        ]
-        for color, agent, model in rows:
-            st.markdown(
-                f"""
-<div style="display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--text-secondary);font-size:13px">
-  <span style="width:8px;height:8px;border-radius:50%;background:{color};display:inline-block"></span>
-  <span><b style="color:var(--text-primary)">{escape(agent)}</b> — {escape(model)}</span>
-</div>
-                """,
-                unsafe_allow_html=True,
-            )
-        st.divider()
-        stats = get_catalog_stats()
-        st.metric("Products", stats["total_products"])
-        st.metric("Categories", len(stats["categories"]))
-        st.metric("Price Range", f"{money(stats['min_price'])} - {money(stats['max_price'])}")
-        st.divider()
-        st.caption("© 2026 AutoSales Engineer Pro")
 
 
 def apply_template_defaults() -> None:
