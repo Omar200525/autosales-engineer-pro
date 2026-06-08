@@ -1,180 +1,189 @@
 # AutoSales Engineer Pro
 
-AutoSales Engineer Pro is an AI-assisted presales engineering toolkit for turning client briefs into quote-ready IT solution proposals. It can parse text and image briefs, assemble catalog-backed bills of materials, review solution quality, export PDFs, and optionally send Telegram notifications.
+AutoSales Engineer Pro is a Vite + React frontend with a FastAPI backend for AI-assisted IT sales engineering. It turns a client brief or image into a structured solution, validates the result through multiple agents, and produces a quote-ready report with supporting rationale.
 
-## Highlights
+## Overview
 
-- Text and image brief intake with structured requirement extraction.
-- Catalog-backed solution planning with pricing, logistics, and compatibility checks.
-- FastAPI backend with asynchronous pipeline runs and server-sent progress events.
-- React frontend for running quotes, reviewing outputs, and browsing results.
-- Streamlit demo UI for quick local experimentation.
-- Deterministic local fallback paths when optional providers are unavailable.
-- PDF proposal export and optional Telegram delivery.
+The application runs a four-agent pipeline:
 
-## Quick Start
+```
+Client Text / Image
+    |
+    v
+Visual Analyst  ->  Parser  ->  Sales Engineer  ->  Reviewer
+(Gemini)            (Groq)      (Chutes / Groq)     (Chutes / Groq)
+    |                |              |                 |
+    +----------------+--------------+-----------------+
+                 |
+                 v
+        FastAPI backend + React (Vite) frontend report + PDF quote
+```
+
+Each stage adds structure and validation:
+
+- The Sales Engineer designs a compatible solution using tools and catalog data.
+- The Reviewer performs a final quality and commercial review before delivery.
+
+## Key Features
+
+- Image-to-brief extraction for whiteboards, RFQs, diagrams, and server-room photos.
+- Structured procurement parsing for Malaysian IT sales workflows.
+- Tool-assisted solution generation with catalog search, compatibility checks, budget fit, and delivery validation.
+- Self-critique and reviewer feedback loops for higher-quality outputs.
+- Local SQLite catalog fallback for resilient offline or provider-limited operation.
+- Optional web product search when `TAVILY_API_KEY` is available.
+- Professional quote export with line items, totals, reasoning, and delivery estimates.
+- Clean React dashboard with a live pipeline monitor.
+
+## Technology Stack
+
+- Python 3.10+
+- FastAPI backend (uvicorn)
+- React frontend (Vite)
+- OpenAI-compatible provider clients
+- Pydantic
+- Rich
+- ReportLab
+- SQLite
+- Tavily search integration
+
+## Requirements
+
+You will need:
+
+- Python 3.10 or later
+- API keys for the providers you want to use
+- A virtual environment for local development
+
+## Setup
 
 ```bash
-git clone https://github.com/Omar200525/autosales-engineer-pro.git
-cd autosales-engineer-pro
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate    # Windows
+# or: source .venv/bin/activate  # macOS/Linux
 pip install -r requirements.txt
-copy .env.example .env
+copy .env.example .env     # Windows
+# or: cp .env.example .env  # macOS/Linux
 ```
 
-Edit `.env` and add the provider keys you plan to use.
+Update `.env` with your provider keys and preferred models:
 
-## Configuration
+```text
+GEMINI_API_KEY=your_gemini_key
+GEMINI_VISION_MODEL=gemini-3.5-flash
+GEMINI_FALLBACK_VISION_MODEL=gemini-2.5-flash
+GROQ_API_KEY=your_groq_key
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_PARSER_MODEL=llama-3.3-70b-versatile
+GROQ_FALLBACK_MODEL=llama-3.1-8b-instant
+CHUTES_API_KEY=your_chutes_key
+CHUTES_BASE_URL=https://llm.chutes.ai/v1
+ORCHESTRATOR_MODEL=Qwen/Qwen2.5-72B-Instruct
+REVIEWER_MODEL=deepseek-ai/DeepSeek-R1
+TAVILY_API_KEY=tvly_your_key_here
+```
 
-Minimum recommended keys:
+## Run (development)
 
-| Variable | Required | Purpose |
-|---|---:|---|
-| `GROQ_API_KEY` | Yes | Parser and fallback model calls |
-| `CHUTES_API_KEY` | Yes | Sales Engineer and Reviewer primary model calls |
-| `GEMINI_API_KEY` | Optional | Image brief analysis |
-| `TAVILY_API_KEY` | Optional | Live web product search |
-| `API_CORS_ORIGINS` | Optional | Allowed React frontend origins for FastAPI |
-
-Optional model and provider overrides are documented in `.env.example`.
-
-## Run The App
-
-Streamlit demo:
+Start the backend (FastAPI):
 
 ```bash
-streamlit run main.py
+c:/Hackathon/.venv/Scripts/python.exe -m uvicorn backend.app:app --reload --port 8000
 ```
 
-FastAPI backend:
-
-```bash
-uvicorn backend.app:app --reload --port 8000
-```
-
-React frontend:
+Start the frontend (Vite):
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev -- --host
 ```
 
-Open the frontend at `http://localhost:5173`. The backend health check is available at `http://localhost:8000/health`.
+Open the UI at `http://localhost:5173` and the API at `http://127.0.0.1:8000`.
 
-## Telegram Notifications
+The application creates `catalog.db` on backend startup. That file is intentionally gitignored. If Tavily is not configured or unavailable, the backend continues with the local SQLite catalog.
 
-Telegram support is optional. It can send completion or failure notifications, attach generated PDFs, and run a local long-polling command bot while the FastAPI backend is running.
+## How To Use
 
-Add these values to `.env` to enable it:
+1. Open the app in the React frontend.
+2. Choose an intake mode: text, image, or both.
+3. Enter the client brief or upload an image.
+4. Launch the agent pipeline.
+5. Review the generated quote, reasoning, and PDF output.
 
-```env
-TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_or_channel_id
-TELEGRAM_INCLUDE_PDF=true
-TELEGRAM_BOT_POLLING_ENABLED=true
-```
-
-Supported bot commands:
+## Example Text Brief
 
 ```text
-/start - connect this chat and subscribe to live quote progress
-/help - show commands
-/status - show the latest run
-/status <run_id> - show a specific run
-/quote <brief> - start a quote from this chat
-/subscribe - receive live run progress in this chat
-/unsubscribe - stop live progress in this chat
+Client: Acme KL Services
+Use case: New office setup for 15 staff with secure internet, WiFi, file sharing, Microsoft 365, and video conferencing.
+Budget: MYR 25,000
+Delivery location: Kuala Lumpur
+Number of users: 15
+Specific requirements:
+- WiFi coverage for 3 floors
+- NAS for shared files
+- UPS backup power
+- Microsoft 365 for all users
+- Video conferencing room setup
 ```
 
-Telegram failures are non-blocking. A quote run can still complete if the token, chat ID, or network request fails.
+## Example Image Briefs
 
-## Pipeline Flow
+Useful uploads include:
 
-1. Parse the client brief.
-2. Analyze any uploaded image brief.
-3. Build a proposed solution and bill of materials.
-4. Check budget, compatibility, delivery, and catalog/product sources.
-5. Run self-critique and reviewer QA.
-6. Generate a quote-ready solution report and PDF.
+- A whiteboard photo listing budget, users, office location, and device needs.
+- A scanned RFQ document with procurement requirements.
+- A hand-drawn network diagram with router, switch, AP, firewall, and NAS labels.
+- A photo of an existing server room or network rack.
+
+## Pipeline Behavior
+
+The pipeline is designed to stay resilient when provider limits or tool failures occur:
+
+- The Sales Engineer can fall back to a deterministic local catalog builder.
+- Groq prompts are compacted to reduce request-size and TPM issues.
+- The Reviewer can use a fallback path if the primary provider is unavailable.
+- The UI shows a clean live pipeline monitor so you can see which agent is active.
+
+## Output
+
+The generated report and PDF include:
+
+- Itemized bill of materials with quantity, unit price, product URL, and source platform.
+- Logistics and cost-of-ownership figures, including shipping and SST.
+- A reasoning summary describing the solution choices.
+- A delivery timeline estimate for the selected region.
+- Reviewer feedback with technical and commercial scores.
 
 ## Project Structure
 
 ```text
 autosales-engineer-pro/
-|-- main.py
-|-- pipeline.py
-|-- requirements.txt
-|-- README.md
-|-- .env.example
-|-- agents/
-|   |-- parser_agent.py
-|   |-- reviewer_agent.py
-|   |-- sales_engineer_agent.py
-|   `-- visual_analyst_agent.py
-|-- backend/
-|   |-- app.py
-|   |-- run_store.py
-|   |-- schemas.py
-|   |-- telegram_bot.py
-|   `-- telegram_notifications.py
-|-- core/
-|   |-- catalog.py
-|   |-- config.py
-|   |-- fallbacks.py
-|   |-- gemini_client.py
-|   |-- llm_utils.py
-|   |-- models.py
-|   |-- pdf_generator.py
-|   |-- telegram_client.py
-|   |-- telegram_config.py
-|   `-- tools.py
-|-- frontend/
-|   |-- package.json
-|   |-- vite.config.ts
-|   `-- src/
-|       |-- App.tsx
-|       |-- api.ts
-|       |-- main.tsx
-|       |-- styles.css
-|       `-- types.ts
-`-- tests/
-    |-- test_backend_api.py
-    |-- test_sales_engineer_fast_planner.py
-    `-- test_telegram_notifications.py
+├── main.py
+├── pipeline.py
+├── agents/
+│   ├── __init__.py
+│   ├── visual_analyst_agent.py
+│   ├── parser_agent.py
+│   ├── sales_engineer_agent.py
+│   └── reviewer_agent.py
+├── core/
+│   ├── __init__.py
+│   ├── catalog.py
+│   ├── config.py
+│   ├── fallbacks.py
+│   ├── gemini_client.py
+│   ├── llm_utils.py
+│   ├── models.py
+│   ├── pdf_generator.py
+│   └── tools.py
+├── requirements.txt
+├── README.md
+└── .env.example
 ```
-
-## Tests
-
-```bash
-pytest
-python -m compileall agents backend core main.py pipeline.py tests
-```
-
-For the frontend:
-
-```bash
-cd frontend
-npm run build
-```
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| Missing Groq key | Add `GROQ_API_KEY` to `.env`, then restart the app |
-| Missing Chutes key | Add `CHUTES_API_KEY` to `.env`, then restart the app |
-| React app cannot reach backend | Start `uvicorn backend.app:app --reload --port 8000` and check `API_CORS_ORIGINS` |
-| Image upload does not analyze | Add `GEMINI_API_KEY` |
-| Web search returns no results | The local catalog fallback still works |
-| `catalog.db locked` | Stop running servers, delete `catalog.db`, then restart |
-| UI still shows old styling | Hard refresh the browser with `Ctrl+F5` |
 
 ## Notes
 
-- Do not commit `.env`; it contains private credentials.
-- Use `.env.example` as the public configuration template.
-- `catalog.db` is created and seeded automatically when the local catalog is first used.
-- The app loads `.env` from the app directory even if launched from a parent folder.
+- The app is built for Malaysian IT procurement workflows.
+- Local fallback behavior is intentional and helps keep the pipeline usable when external services are rate limited or unavailable.
+- If you want, I can also add badges, screenshots, or a shorter executive summary section.

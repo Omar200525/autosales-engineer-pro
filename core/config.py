@@ -11,7 +11,7 @@ from openai import OpenAI
 
 
 def _load_env() -> None:
-    """Load .env even when Streamlit is launched from a parent directory."""
+    """Load .env from common locations so the backend and tools pick up configuration."""
     app_root = Path(__file__).resolve().parents[1]
     for env_path in (Path.cwd() / ".env", app_root / ".env", app_root / "autosales-engineer-pro" / ".env"):
         if env_path.exists():
@@ -40,7 +40,7 @@ TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 def _missing_key_message(provider: str, env_name: str) -> str:
     return (
         f"Missing {provider} API key. Add {env_name}=your_key_here to .env, "
-        "then restart Streamlit. See .env.example for the full setup."
+        "then restart the backend. See .env.example for the full setup."
     )
 
 
